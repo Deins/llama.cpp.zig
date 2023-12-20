@@ -3,6 +3,20 @@ pub const llama = @import("llama.zig");
 
 const Token = llama.Token;
 const TokenType = llama.TokenType;
+const LogLevel = llama.LogLevel;
+
+pub fn scopedLog(level: LogLevel, text_: [*:0]const u8, user_data: ?*anyopaque) callconv(.C) void {
+    _ = user_data;
+    const sl = std.log.scoped(.llama_cpp);
+    var text: []const u8 = std.mem.span(text_);
+    while (text.len > 0 and text[text.len - 1] == '\n') text = text[0 .. text.len - 1]; // trim newlines
+    if (text.len == 1 and text[0] == '.') return; // clean up formatting strings
+    switch (level) {
+        .Error => sl.err("{s}", .{text}),
+        .Warn => sl.warn("{s}", .{text}),
+        .Info => sl.info("{s}", .{text}),
+    }
+}
 
 pub const Tokenizer = struct {
     data: std.ArrayList(Token),
@@ -55,7 +69,7 @@ pub const Detokenizer = struct {
         self.data.clearRetainingCapacity();
     }
 
-    /// de-tokenize another token
+    /// de-tokenize another token. Doesn't display special tokens.
     pub fn detokenize(self: *@This(), model: *llama.Model, token: llama.Token) !void {
         try self.data.ensureUnusedCapacity(16);
         var size = model.tokenToPiece(token, self.data.unusedCapacitySlice());
@@ -67,6 +81,7 @@ pub const Detokenizer = struct {
         self.data.items = self.data.items.ptr[0 .. self.data.items.len + @as(usize, @intCast(size))];
     }
 
+    /// detokenize, but also display special tokens in their text form. (useful for debugging raw prompt)
     pub fn detokenizeWithSpecial(self: *@This(), model: *llama.Model, token: llama.Token) !void {
         switch (model.tokenGetType(token)) {
             .LLAMA_TOKEN_TYPE_NORMAL, .LLAMA_TOKEN_TYPE_BYTE => try self.detokenize(model, token),
@@ -79,6 +94,7 @@ pub const Detokenizer = struct {
         }
     }
 
+    /// direct token lookup from vocab
     pub fn detokenizeDirect(self: *@This(), model: *llama.Model, token: llama.Token) !void {
         const text = std.mem.span(model.tokenGetText(token));
         try self.data.appendSlice(text);
@@ -128,13 +144,13 @@ pub const TemplatedPrompt = struct {
         nl: []const u8 = "\n",
 
         // WARNING: borrows values from model, will be valid only as long as model is loaded
-        // NOTE: many models report wrong values, so allways check their validity
+        // NOTE: many models report wrong values, so make sure they are right
         pub fn setTokensFromModel(self: *Params, model: *llama.Model) void {
             self.nl = std.mem.span(model.tokenGetText(model.tokenEos()));
             self.bos = std.mem.span(model.tokenGetText(model.tokenBos()));
             self.eos = std.mem.span(model.tokenGetText(model.tokenEos()));
         }
-        pub fn fromModel(model: *llama.Model) Params {
+        pub fn tokensFromModel(model: *llama.Model) Params {
             var p: Params = .{};
             p.setTokensFromModel(model);
             return p;
@@ -199,13 +215,14 @@ pub const TemplatedPrompt = struct {
             [2][]const u8{ "{content}", content },
             [2][]const u8{ "\n", self.params.nl },
         };
-
-        std.debug.print("text: {s}", .{text});
         for (replacements) |r| {
             if (std.mem.eql(u8, r[0], r[1])) continue;
             text = try self.replace(text, r[0], r[1]);
         }
-        for (self.params.additional_replacements) |r| text = try self.replace(text, r[0], r[1]);
+        for (self.params.additional_replacements) |r| {
+            if (std.mem.eql(u8, r[0], r[1])) continue;
+            text = try self.replace(text, r[0], r[1]);
+        }
 
         try self.text.appendSlice(text);
     }
@@ -214,12 +231,21 @@ pub const TemplatedPrompt = struct {
         for (items) |item| try self.add(item.role, item.content);
     }
 
-    pub fn addFromJson(self: *Self, json: []const u8) void {
+    pub fn addFromJson(self: *Self, json: []const u8) !void {
         var arena = std.heap.ArenaAllocator.init(self.alloc());
         const aaloc = arena.allocator();
-        var values = try std.json.parseFromSlice([]Message, aaloc, json, .{});
-        self.addMany(values);
+        var parsed = try std.json.parseFromSlice([]Message, aaloc, json, .{});
+        try self.addMany(parsed.value);
         arena.deinit();
+    }
+
+    pub fn addFromJsonFile(self: *Self, path: []const u8) !void {
+        var pbuf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const f = try std.fs.openFileAbsolute(try std.fs.realpath(path, &pbuf), .{});
+        defer f.close();
+        const content = try f.readToEndAlloc(self.alloc(), std.math.maxInt(usize));
+        defer self.alloc().free(content);
+        try self.addFromJson(content);
     }
 };
 

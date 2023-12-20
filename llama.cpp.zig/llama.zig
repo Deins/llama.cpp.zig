@@ -734,7 +734,15 @@ pub const printSystemInfo = c.llama_print_system_info;
 
 // Set callback for all future logging events.
 // If this is not called, or NULL is supplied, everything is output on stderr.
-pub const logSet = c.llama_log_set;
+pub const LogLevel = enum(c_int) {
+    Error = 2, // GGML_LOG_LEVEL_ERROR = 2,
+    Warn = 3, // GGML_LOG_LEVEL_WARN = 3,
+    Info = 4, // GGML_LOG_LEVEL_INFO = 4
+};
+pub const LogCallback = *const fn (level: LogLevel, text: CStr, user_data: ?*anyopaque) callconv(.C) void;
+pub fn logSet(cb: ?LogCallback, user_data: ?*anyopaque) void {
+    c.llama_log_set(@ptrCast(cb), user_data);
+}
 
 pub const dumpTimingInfoToYaml = c.llama_dump_timing_info_yaml;
 
