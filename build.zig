@@ -108,7 +108,7 @@ pub fn build(b: *std.Build) !void {
 
     { // tests
         const main_tests = b.addTest(.{
-            .root_source_file = .{ .path = "src/llama.zig" },
+            .root_source_file = .{ .path = "llama.cpp.zig/llama.zig" },
             .target = target,
             .optimize = optimize,
         });
