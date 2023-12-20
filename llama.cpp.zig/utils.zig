@@ -206,11 +206,13 @@ pub const TemplatedPrompt = struct {
     pub fn add(self: *Self, role_: []const u8, content_: []const u8) !void {
         var role = if (self.params.trim_role) trim(role_) else role_;
         var content = if (self.params.trim_content) trim(content_) else content_;
+        const ends_with_generation = std.ascii.endsWithIgnoreCase(content, "{ai_content}");
+        if (ends_with_generation) content = content[0 .. content.len - "{ai_content}".len];
         var text = self.params.template;
 
         const replacements = [_][2][]const u8{
             [2][]const u8{ "{bos}", self.params.bos },
-            [2][]const u8{ "{eos}", self.params.eos },
+            [2][]const u8{ "{eos}", if (ends_with_generation) "" else self.params.eos },
             [2][]const u8{ "{role}", role },
             [2][]const u8{ "{content}", content },
             [2][]const u8{ "\n", self.params.nl },
@@ -223,7 +225,7 @@ pub const TemplatedPrompt = struct {
             if (std.mem.eql(u8, r[0], r[1])) continue;
             text = try self.replace(text, r[0], r[1]);
         }
-
+        if (ends_with_generation) text = trimBack(text);
         try self.text.appendSlice(text);
     }
 

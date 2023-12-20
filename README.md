@@ -1,7 +1,7 @@
 # llama.cpp.zig
 llama.cpp bindings and utilities for zig. Currently targeting zig `0.11.x`.
 
-* Implements llama.h for nicer interaction with zig. Such as:
+* Implements llama.h for nicer interaction with zig.
     * Removes prefixes, changes naming for functions to camelCase. Group functions within most appropriete struct. etc.
     * Bindings still depend on translate-c as I tried to not rewrite struct definitions too much as those might change. But some were rewritten for ease of use. Has to be seen if others might benefit rewriting as well for nicer access / syntax.
 * Re-Implements some of the C++ that is not acessable through c api due to use of c++ std stuff:

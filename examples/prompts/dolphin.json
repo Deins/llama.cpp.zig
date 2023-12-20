@@ -9,6 +9,6 @@
     },
     {
         "role": "assistant",
-        "content" : ""
+        "content" : "{ai_content}"
     }
 ]
