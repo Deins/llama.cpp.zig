@@ -19,14 +19,4 @@ Clone: `git clone --recursive https://github.com/Deins/llama.cpp.zig.git`
 # set the path to model
 zig build run-simple -Doptimize=ReleaseFast -- --model_path path_to/model.gguf --prompt "Hello! I am AI, and here are the 10 things I like to think about:"
 ```
-See [example](examples/simple.zig) 
-
-
-
-### todo
-* finish & cleanup simple sample, try more advanced scenarios
-* `llama.zig` has last few more functions at end of the file that need to be added.
-* integration with package manager zig.zon etc. Overall clean up build.zig, push needed changes for nice integration upstrem
-* figure out if we can implement compiling some of the BLAS libraries for gpu acceleration from zig, currently has cpu base implementation only
-* figure out what to do with grammar sampling, currently there is no c api exposed to parse it
-* .... 
+See [examples/simple.zig](examples/simple.zig) 
