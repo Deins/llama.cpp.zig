@@ -23,6 +23,7 @@ pub const Context = struct {
     options: Options,
     build_info: *CompileStep,
     path_prefix: []const u8 = "llama.cpp",
+    lib: ?*CompileStep = null,
 
     pub fn init(b: *Builder, op: Options, path_prefix: []const u8) Context {
         const zig_version = @import("builtin").zig_version_string;
@@ -50,8 +51,15 @@ pub const Context = struct {
         };
     }
 
+    /// just builds everything needed and links it to your target
+    pub fn link(ctx: *Context, comp: *CompileStep) void {
+        comp.linkLibrary(ctx.library());
+        if (ctx.options.opencl) |ocl| ocl.link(comp);
+    }
+
     /// build single library containing everything
-    pub fn libAll(ctx: Context) *CompileStep {
+    pub fn library(ctx: *Context) *CompileStep {
+        if (ctx.lib) |l| return l;
         const lib_opt = .{ .name = "llama.cpp", .target = ctx.options.target, .optimize = ctx.options.optimize };
         const lib = if (ctx.options.shared) ctx.b.addSharedLibrary(lib_opt) else ctx.b.addStaticLibrary(lib_opt);
         ctx.addAll(lib);
@@ -63,18 +71,19 @@ pub const Context = struct {
                 lib.defineCMacro("ZIG", null);
             }
         }
+        ctx.lib = lib;
         return lib;
     }
 
     /// link everything directly to target
-    pub fn addAll(ctx: Context, compile: *CompileStep) void {
+    pub fn addAll(ctx: *Context, compile: *CompileStep) void {
         ctx.addBuildInfo(compile);
         ctx.addGmaa(compile);
         ctx.addLLama(compile);
     }
 
     // zig module with translated headers
-    pub fn addModule(ctx: Context) *Module {
+    pub fn addModule(ctx: *Context) *Module {
         const tc = ctx.b.addTranslateC(.{
             .source_file = ctx.path("llama.h"),
             .target = ctx.options.target,
@@ -85,11 +94,11 @@ pub const Context = struct {
         return tc.addModule("llama.h");
     }
 
-    pub fn addBuildInfo(ctx: Context, compile: *CompileStep) void {
+    pub fn addBuildInfo(ctx: *Context, compile: *CompileStep) void {
         compile.addObject(ctx.build_info);
     }
 
-    pub fn addGmaa(ctx: Context, compile: *CompileStep) void {
+    pub fn addGmaa(ctx: *Context, compile: *CompileStep) void {
         ctx.common(compile);
 
         const sources = [_]LazyPath{
@@ -116,12 +125,53 @@ pub const Context = struct {
 
     }
 
-    pub fn addLLama(ctx: Context, compile: *CompileStep) void {
+    pub fn addLLama(ctx: *Context, compile: *CompileStep) void {
         ctx.common(compile);
         compile.addCSourceFile(.{ .file = ctx.path("llama.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.path("common/common.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.path("common/sampling.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.path("common/grammar-parser.cpp"), .flags = ctx.flags() });
+        // kind of optional depending on context, see if worth spliting in another lib
+        compile.addCSourceFile(.{ .file = ctx.path("common/train.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.path("common/console.cpp"), .flags = ctx.flags() });
+    }
+
+    pub fn samples(ctx: *Context, install: bool) !void {
+        const b = ctx.b;
+        const examples = [_][]const u8{
+            "main",
+            "quantize",
+            "perplexity",
+            "embedding",
+            "finetune",
+            "train-text-from-scratch",
+        };
+        for (examples) |ex| {
+            const exe = b.addExecutable(.{ .name = ex });
+            if (install) b.installArtifact(exe);
+            { // add all c/cpp samples from dir
+                const rpath = b.pathJoin(&.{ ctx.path_prefix, "examples", ex });
+                exe.addIncludePath(.{ .path = rpath });
+                var dir = try std.fs.openIterableDirAbsolute(b.pathFromRoot(rpath), .{});
+                defer dir.close();
+                var dir_it = dir.iterate();
+                while (try dir_it.next()) |f| switch (f.kind) {
+                    .file => if (std.ascii.endsWithIgnoreCase(f.name, ".c") or std.ascii.endsWithIgnoreCase(f.name, ".cpp")) {
+                        const src = b.pathJoin(&.{ ctx.path_prefix, "examples", ex, f.name });
+                        exe.addCSourceFile(.{ .file = .{ .path = src }, .flags = &.{} });
+                    },
+                    else => {},
+                };
+            }
+            exe.addIncludePath(ctx.path("common"));
+            ctx.common(exe);
+            ctx.link(exe);
+
+            const run_exe = b.addRunArtifact(exe);
+            if (b.args) |args| run_exe.addArgs(args); // passes on args like: zig build run -- my fancy args
+            run_exe.step.dependOn(b.default_step); // allways copy output, to avoid confusion
+            b.step(b.fmt("run-cpp-{s}", .{ex}), b.fmt("Run llama.cpp example: {s}", .{ex})).dependOn(&run_exe.step);
+        }
     }
 
     fn flags(ctx: Context) [][]const u8 {

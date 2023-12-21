@@ -21,9 +21,13 @@ zig build run-simple -Doptimize=ReleaseFast -- --model_path path_to/model.gguf -
 ```
 See [examples/simple.zig](examples/simple.zig) 
 
+### CPP samples
+You can also build subset of llama cpp samples. Use `-Dcpp_samples` option to install cpp samples.  
+Or just run them, for example: `zig build run-cpp-main -Dclblast -Doptimize=ReleaseFast -- -m path/to/model -p "hello my name is"`
 
 ## CLBlast acceleration
 Clblast & opencl is supported by building it from source with zig. Cuda backend is not finished as I don't have nvidia hardware, pull requests welcome.
+
 
 ### Usage:
 Ideally just `zig build -Dclblast ...`. It should work out of the box if you have installed [GPUOpen/ocl](https://github.com/GPUOpen-LibrariesAndSDKs/OCL-SDK/releases). 
