@@ -11,5 +11,9 @@
         "README.md",
         "example.zig",
     },
-    .dependencies = .{},
+
+    .dependencies = .{ .clblast = .{
+        .url = "https://github.com/Deins/CLBlast.build.zig/archive/refs/tags/zig-v11_initial.tar.gz",
+        .hash = "122017eaab29808365349839382debbd70af1ceb953570eded5409a8d18f4069a146",
+    } },
 }
