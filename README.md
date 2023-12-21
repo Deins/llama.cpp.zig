@@ -20,3 +20,13 @@ Clone: `git clone --recursive https://github.com/Deins/llama.cpp.zig.git`
 zig build run-simple -Doptimize=ReleaseFast -- --model_path path_to/model.gguf --prompt "Hello! I am AI, and here are the 10 things I like to think about:"
 ```
 See [examples/simple.zig](examples/simple.zig) 
+
+
+## CLBlast acceleration
+Clblast & opencl is supported by building it from source with zig. Cuda backend is not finished as I don't have nvidia hardware, pull requests welcome.
+
+### Usage:
+Ideally just `zig build -Dclblast ...`. It should work out of the box if you have installed [GPUOpen/ocl](https://github.com/GPUOpen-LibrariesAndSDKs/OCL-SDK/releases). 
+For other configurations you will need to find where OpenCL headers/libs are and pass them in using arguments `zig build -Dclblast -Dopencl_includes="/my/path" -Dopencl_libs="/my/path/"`
+Auto detection might be improved in future - let me know what opencl sdk you use. 
+

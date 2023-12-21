@@ -15,7 +15,7 @@
     .dependencies = .{
         .clblast = .{
             .url = "https://github.com/Deins/CLBlast.build.zig/archive/refs/tags/0.0.1_zig11.tar.gz",
-            .hash = "122091752c3a0672b8be2d14aac173aa7b28a9b5b60a1e54484deec4045b252415e7",
+            .hash = "122099212caa12bd6462c6db932573c49f2e9404fbe0637b134e72a395cf3778f997",
         },
     },
 }

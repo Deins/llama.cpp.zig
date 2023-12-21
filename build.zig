@@ -17,12 +17,14 @@ const llama_cpp_path_prefix = "llama.cpp/"; // point to where llama.cpp root is
 
 pub fn build(b: *std.Build) !void {
     const use_clblast = b.option(bool, "clblast", "Use clblast acceleration") orelse true;
+    const opencl_includes = b.option([]const u8, "opencl_includes", "Path to OpenCL headers");
+    const opencl_libs = b.option([]const u8, "opencl_libs", "Path to OpenCL libs");
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const lto = b.option(bool, "lto", "Enable LTO optimization, (default: false)") orelse false;
 
-    const opencl_maybe = llama.clblast.OpenCL.fromOCL(b, target);
+    const opencl_maybe = if (opencl_includes != null or opencl_libs != null) llama.clblast.OpenCL{ .include_path = (opencl_includes orelse ""), .lib_path = (opencl_libs orelse "") } else llama.clblast.OpenCL.fromOCL(b, target);
     if (use_clblast and opencl_maybe == null) @panic("OpenCL not found. Please specify include or libs manually if its installed!");
     var llama_build_ctx = llama.Context.init(b, .{
         .target = target,

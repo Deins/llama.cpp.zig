@@ -81,6 +81,7 @@ pub const Context = struct {
             .optimize = ctx.options.optimize,
         });
         if (ctx.options.shared) tc.defineCMacro("LLAMA_SHARED", null);
+        tc.defineCMacro("NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
         return tc.addModule("llama.h");
     }
 
