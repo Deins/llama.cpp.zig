@@ -308,7 +308,7 @@ pub const RepetitionPenalizer = struct {
         candidates.sorted = false;
     }
 
-    /// WARNING: modifies logit values which  so if passing from TokenDataArray use samepleTokenDataArray to invalidate sorted flag
+    /// WARNING: modifies logit values so array might not be sorted after this. If passing from TokenDataArray use samepleTokenDataArray to invalidate sorted flag
     pub fn sample(self: *@This(), candidates: []TokenData) void {
         const penalty_repeat = self.params.penalty_repeat;
         const penalty_freq = self.params.penalty_freq;
