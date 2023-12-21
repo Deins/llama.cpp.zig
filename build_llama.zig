@@ -5,12 +5,14 @@ const Mode = std.builtin.Mode;
 const CompileStep = std.Build.CompileStep;
 const LazyPath = std.Build.LazyPath;
 const Module = std.Build.Module;
+pub const clblast = @import("clblast");
 
 pub const Options = struct {
     target: CrossTarget,
     optimize: Mode,
     shared: bool, // static or shared lib
     lto: bool = false,
+    opencl: ?clblast.OpenCL = null,
     clblast: bool = false,
     build_number: usize = 0, // number that will be writen in build info
 };
@@ -96,7 +98,18 @@ pub const Context = struct {
             ctx.path("ggml-quants.c"),
             ctx.path("ggml.c"),
         };
-        if (ctx.options.clblast) compile.addCSourceFile(.{ .file = ctx.path("ggml-opencl.cpp"), .flags = ctx.flags() });
+        if (ctx.options.clblast) {
+            compile.addCSourceFile(.{ .file = ctx.path("ggml-opencl.cpp"), .flags = ctx.flags() });
+            compile.defineCMacro("GGML_USE_CLBLAST", null);
+
+            const blast = clblast.ClBlast.build(ctx.b, .{
+                .target = ctx.options.target,
+                .optimize = ctx.options.optimize,
+                .backend = .{ .opencl = ctx.options.opencl.? },
+            });
+            blast.link(compile);
+            ctx.options.opencl.?.link(compile);
+        }
         for (sources) |src| compile.addCSourceFile(.{ .file = src, .flags = ctx.flags() });
         //if (ctx.cuda) compile.ctx.path("ggml-cuda.cu");
 

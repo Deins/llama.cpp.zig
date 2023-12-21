@@ -16,15 +16,21 @@ const clblast = @import("clblast");
 const llama_cpp_path_prefix = "llama.cpp/"; // point to where llama.cpp root is
 
 pub fn build(b: *std.Build) !void {
+    const use_clblast = b.option(bool, "clblast", "Use clblast acceleration") orelse true;
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const lto = b.option(bool, "lto", "Enable LTO optimization, (default: false)") orelse false;
 
+    const opencl_maybe = llama.clblast.OpenCL.fromOCL(b, target);
+    if (use_clblast and opencl_maybe == null) @panic("OpenCL not found. Please specify include or libs manually if its installed!");
     var llama_build_ctx = llama.Context.init(b, .{
         .target = target,
         .optimize = optimize,
         .shared = false,
         .lto = lto,
+        .opencl = opencl_maybe,
+        .clblast = use_clblast,
     }, "llama.cpp");
     var llama_lib = llama_build_ctx.libAll();
     b.installArtifact(llama_lib);
@@ -39,6 +45,7 @@ pub fn build(b: *std.Build) !void {
         var exe = b.addExecutable(.{ .name = "simple", .root_source_file = .{ .path = "examples/simple.zig" } });
         exe.linkLibrary(llama_lib);
         exe.addModule("llama", llama_zig);
+        if (opencl_maybe) |ocl| ocl.link(exe);
         b.installArtifact(exe); // location when the user invokes the "install" step (the default step when running `zig build`).
 
         const run_exe = b.addRunArtifact(exe);
