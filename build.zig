@@ -23,8 +23,12 @@ pub const Options = struct {
 /// Build context
 pub const Context = struct {
     const Self = @This();
+    /// llama.cpp build context
     llama: llama.Context,
-    module_: *Module,
+    /// zig module
+    module: *Module,
+    /// llama.cpp header file module, mostly for internal use
+    h_module: *Module,
 
     pub fn init(b: *std.Build, options: Options) Self {
         var zop = b.addOptions();
@@ -39,20 +43,17 @@ pub const Context = struct {
             .clblast = options.clblast,
         }, "llama.cpp");
 
+        const h_module = llama_cpp.addModule();
         const deps: []const std.Build.ModuleDependency = &.{ .{
             .name = "llama.h",
-            .module = llama_cpp.addModule(),
+            .module = h_module,
         }, .{
             .name = "llama_options",
             .module = zop.createModule(),
         } };
         const mod = b.createModule(.{ .source_file = .{ .path = "llama.cpp.zig/llama.zig" }, .dependencies = deps });
 
-        return .{ .llama = llama_cpp, .module_ = mod };
-    }
-
-    pub fn module(self: Self) *Module {
-        return self.module_;
+        return .{ .llama = llama_cpp, .module = mod, .h_module = h_module };
     }
 
     pub fn link(self: *Self, comp: *CompileStep) void {
@@ -85,7 +86,7 @@ pub fn build(b: *std.Build) !void {
 
     { // simple example
         var exe = b.addExecutable(.{ .name = "simple", .root_source_file = .{ .path = "examples/simple.zig" } });
-        exe.addModule("llama", llama_zig.module());
+        exe.addModule("llama", llama_zig.module);
         llama_zig.link(exe);
         b.installArtifact(exe); // location when the user invokes the "install" step (the default step when running `zig build`).
 
@@ -102,6 +103,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         llama_zig.link(main_tests);
+        main_tests.addModule("llama.h", llama_zig.h_module);
         const run_main_tests = b.addRunArtifact(main_tests);
 
         const test_step = b.step("test", "Run library tests");

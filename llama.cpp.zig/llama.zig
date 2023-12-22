@@ -5,11 +5,6 @@ pub const sampling = @import("sampling.zig");
 pub usingnamespace sampling;
 pub usingnamespace utils;
 
-test {
-    // include all tests that can be referenced from here
-    @import("std").testing.refAllDecls(@This());
-}
-
 //
 //  Actual llama.h bindings
 //
@@ -699,7 +694,7 @@ pub const BeamsState = c.llama_beams_state;
 // Type of pointer to the beam_search_callback function.
 // void* callback_data is any custom data passed to llama_beam_search, that is subsequently
 // passed back to beam_search_callback. This avoids having to use global variables in the callback.
-pub const BeamSearchCallback = *const fn (callback_data: ?*anyopaque, state: BeamsState) void;
+pub const BeamSearchCallback = *const fn (callback_data: ?*anyopaque, state: BeamsState) callconv(.C) void;
 
 /// @details Deterministically returns entire sentence constructed by a beam search.
 /// @param ctx Pointer to the llama_context.
@@ -708,8 +703,8 @@ pub const BeamSearchCallback = *const fn (callback_data: ?*anyopaque, state: Bea
 /// @param n_beams Number of beams to use.
 /// @param n_past Number of tokens already evaluated.
 /// @param n_predict Maximum number of tokens to predict. EOS may occur earlier.
-pub fn beamSearch(ctx: *Context, callback: *BeamSearchCallback, callback_data: ?*anyopaque, n_beams: usize, n_past: c_int, n_predict: c_int) void {
-    return c.llama_beam_search(ctx, callback, callback_data, n_beams, n_past, n_predict);
+pub fn beamSearch(ctx: *Context, callback: BeamSearchCallback, callback_data: ?*anyopaque, n_beams: usize, n_past: c_int, n_predict: c_int) void {
+    return c.llama_beam_search(ctx.cPtr(), callback, callback_data, n_beams, n_past, n_predict);
 }
 
 // Print system information
@@ -729,4 +724,13 @@ pub fn logSet(cb: ?LogCallback, user_data: ?*anyopaque) void {
 
 pub const dumpTimingInfoToYaml = c.llama_dump_timing_info_yaml;
 
+//
+// Unrelated utils
+//
+
 pub const CStr = [*:0]const u8;
+
+test {
+    // include all tests that can be publicly referenced from here
+    @import("std").testing.refAllDecls(@This());
+}
