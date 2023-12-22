@@ -1,6 +1,3 @@
-// Compatible with Zig Version 0.11.0
-// NOTE: this file borrows stuff from llama.cpp build zig, but as is it doesn't expose anything so could not be used
-// TODO: implement/push needed changes upstream
 const std = @import("std");
 const llama = @import("build_llama.zig");
 const CrossTarget = std.zig.CrossTarget;
@@ -15,6 +12,54 @@ const clblast = @import("clblast");
 
 const llama_cpp_path_prefix = "llama.cpp/"; // point to where llama.cpp root is
 
+pub const Options = struct {
+    target: CrossTarget,
+    optimize: Mode,
+    lto: bool = false,
+    opencl: ?clblast.OpenCL = null,
+    clblast: bool = false,
+};
+
+/// Build context
+pub const Context = struct {
+    const Self = @This();
+    llama: llama.Context,
+    module_: *Module,
+
+    pub fn init(b: *std.Build, options: Options) Self {
+        var zop = b.addOptions();
+        zop.addOption(bool, "opencl", options.opencl != null);
+
+        var llama_cpp = llama.Context.init(b, .{
+            .target = options.target,
+            .optimize = options.optimize,
+            .shared = false,
+            .lto = options.lto,
+            .opencl = options.opencl,
+            .clblast = options.clblast,
+        }, "llama.cpp");
+
+        const deps: []const std.Build.ModuleDependency = &.{ .{
+            .name = "llama.h",
+            .module = llama_cpp.addModule(),
+        }, .{
+            .name = "llama_options",
+            .module = zop.createModule(),
+        } };
+        const mod = b.createModule(.{ .source_file = .{ .path = "llama.cpp.zig/llama.zig" }, .dependencies = deps });
+
+        return .{ .llama = llama_cpp, .module_ = mod };
+    }
+
+    pub fn module(self: Self) *Module {
+        return self.module_;
+    }
+
+    pub fn link(self: *Self, comp: *CompileStep) void {
+        self.llama.link(comp);
+    }
+};
+
 pub fn build(b: *std.Build) !void {
     const use_clblast = b.option(bool, "clblast", "Use clblast acceleration") orelse true;
     const opencl_includes = b.option([]const u8, "opencl_includes", "Path to OpenCL headers");
@@ -27,27 +72,21 @@ pub fn build(b: *std.Build) !void {
 
     const opencl_maybe = if (opencl_includes != null or opencl_libs != null) llama.clblast.OpenCL{ .include_path = (opencl_includes orelse ""), .lib_path = (opencl_libs orelse "") } else llama.clblast.OpenCL.fromOCL(b, target);
     if (use_clblast and opencl_maybe == null) @panic("OpenCL not found. Please specify include or libs manually if its installed!");
-    var llama_build = llama.Context.init(b, .{
+
+    var llama_zig = Context.init(b, .{
         .target = target,
         .optimize = optimize,
-        .shared = false,
         .lto = lto,
         .opencl = opencl_maybe,
         .clblast = use_clblast,
-    }, "llama.cpp");
-    llama_build.samples(install_cpp_samples) catch @panic("Cpp samples cant be built!");
-    if (llama_build.options.shared) b.installArtifact(llama_build.lib.?);
+    });
 
-    // var lcpp = try LlamaCpp.init(b, target, optimize, lto, "./llama.cpp/");
-    const llama_zig = b.createModule(.{ .source_file = .{ .path = "llama.cpp.zig/llama.zig" }, .dependencies = &.{.{
-        .name = "llama.h",
-        .module = llama_build.addModule(),
-    }} });
+    llama_zig.llama.samples(install_cpp_samples) catch |err| std.log.err("Can't build CPP samples, error: {}", .{err});
 
     { // simple example
         var exe = b.addExecutable(.{ .name = "simple", .root_source_file = .{ .path = "examples/simple.zig" } });
-        exe.addModule("llama", llama_zig);
-        llama_build.link(exe);
+        exe.addModule("llama", llama_zig.module());
+        llama_zig.link(exe);
         b.installArtifact(exe); // location when the user invokes the "install" step (the default step when running `zig build`).
 
         const run_exe = b.addRunArtifact(exe);
@@ -62,7 +101,7 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        llama_build.link(main_tests);
+        llama_zig.link(main_tests);
         const run_main_tests = b.addRunArtifact(main_tests);
 
         const test_step = b.step("test", "Run library tests");
