@@ -23,6 +23,7 @@ pub const Options = struct {
 /// Build context
 pub const Context = struct {
     const Self = @This();
+    b: *std.Build,
     /// llama.cpp build context
     llama: llama.Context,
     /// zig module
@@ -53,11 +54,24 @@ pub const Context = struct {
         } };
         const mod = b.createModule(.{ .source_file = .{ .path = "llama.cpp.zig/llama.zig" }, .dependencies = deps });
 
-        return .{ .llama = llama_cpp, .module = mod, .h_module = h_module };
+        return .{ .b = b, .llama = llama_cpp, .module = mod, .h_module = h_module };
     }
 
     pub fn link(self: *Self, comp: *CompileStep) void {
         self.llama.link(comp);
+    }
+
+    pub fn sample(self: *Self, path: []const u8, name: []const u8) void {
+        const b = self.b;
+        var exe = b.addExecutable(.{ .name = name, .root_source_file = .{ .path = b.pathJoin(&.{ path, std.mem.join(b.allocator, "", &.{ name, ".zig" }) catch @panic("OOM") }) } });
+        exe.addModule("llama", self.module);
+        self.link(exe);
+        b.installArtifact(exe); // location when the user invokes the "install" step (the default step when running `zig build`).
+
+        const run_exe = b.addRunArtifact(exe);
+        if (b.args) |args| run_exe.addArgs(args); // passes on args like: zig build run -- my fancy args
+        run_exe.step.dependOn(b.default_step); // allways copy output, to avoid confusion
+        b.step(b.fmt("run-{s}", .{name}), b.fmt("Run {s} example", .{name})).dependOn(&run_exe.step);
     }
 };
 
@@ -84,17 +98,8 @@ pub fn build(b: *std.Build) !void {
 
     llama_zig.llama.samples(install_cpp_samples) catch |err| std.log.err("Can't build CPP samples, error: {}", .{err});
 
-    { // simple example
-        var exe = b.addExecutable(.{ .name = "simple", .root_source_file = .{ .path = "examples/simple.zig" } });
-        exe.addModule("llama", llama_zig.module);
-        llama_zig.link(exe);
-        b.installArtifact(exe); // location when the user invokes the "install" step (the default step when running `zig build`).
-
-        const run_exe = b.addRunArtifact(exe);
-        if (b.args) |args| run_exe.addArgs(args); // passes on args like: zig build run -- my fancy args
-        run_exe.step.dependOn(b.default_step); // allways copy output, to avoid confusion
-        b.step("run-simple", "Run simple example").dependOn(&run_exe.step);
-    }
+    llama_zig.sample("examples", "simple");
+    llama_zig.sample("examples", "opencl_info");
 
     { // tests
         const main_tests = b.addTest(.{
