@@ -78,7 +78,7 @@ pub const Context = struct {
     /// link everything directly to target
     pub fn addAll(ctx: *Context, compile: *CompileStep) void {
         ctx.addBuildInfo(compile);
-        ctx.addGmaa(compile);
+        ctx.addGgml(compile);
         ctx.addLLama(compile);
     }
 
@@ -110,7 +110,7 @@ pub const Context = struct {
         compile.addObject(ctx.build_info);
     }
 
-    pub fn addGmaa(ctx: *Context, compile: *CompileStep) void {
+    pub fn addGgml(ctx: *Context, compile: *CompileStep) void {
         ctx.common(compile);
 
         const sources = [_]LazyPath{
