@@ -2,27 +2,7 @@
 // OpenCL
 //
 
-pub const ClPlatformId = opaque {
-    // pub const Info {
-    //     name : []const u8,
-    //     vendor :[]const u8,
-    //     profile :[]const u8,
-    //     version : []const u8,
-    // }
-
-    // pub fn queryInfo() Info {
-    //     var param_buff: [512]u8 = undefined;
-    //     var param_len: usize = 0;
-    //     try checkErr(opencl.clGetPlatformInfo(p, .name, param_buff.len, &param_buff, &param_len));
-    //     log("\tname:\t\t{s}\n", .{param_buff[0..param_len]});
-    //     try checkErr(opencl.clGetPlatformInfo(p, .vendor, param_buff.len, &param_buff, &param_len));
-    //     log("\tvendor:\t\t{s}\n", .{param_buff[0..param_len]});
-    //     try checkErr(opencl.clGetPlatformInfo(p, .profile, param_buff.len, &param_buff, &param_len));
-    //     log("\tprofile:\t\t{s}\n", .{param_buff[0..param_len]});
-    //     try checkErr(opencl.clGetPlatformInfo(p, .version, param_buff.len, &param_buff, &param_len));
-    //     log("\tversion:\t\t{s}\n", .{param_buff[0..param_len]});
-    // }
-};
+pub const ClPlatformId = opaque {};
 pub const ClDeviceId = opaque {};
 
 pub const ClDeviceType = enum(cl_bitfield) {

@@ -34,5 +34,5 @@ For other configurations you will need to find where OpenCL headers/libs are and
 Auto detection might be improved in future - let me know what opencl sdk you use. 
 
 ### Selecting GPU
-With opencl backend it seems `main_gpu` parameter is ignored. Insted you can set ids of `GGML_OPENCL_PLATFORM` `GGML_OPENCL_DEVICE` system enviroment variables. There is `zig build run-opencl_info` utility available to print all opencl devices detected.
+With opencl backend it seems `main_gpu` parameter is ignored. Insted you can set ids of `GGML_OPENCL_PLATFORM` `GGML_OPENCL_DEVICE` system enviroment variables. There is `zig build -Dclblast run-opencl_devices` utility available to print all opencl devices detected.
 

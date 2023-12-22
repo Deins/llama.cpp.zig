@@ -1,0 +1,14 @@
+[
+    {
+        "role" : "system",
+        "content" : "You are helpful assistent that tries to precisely and correctly answer any user requests."
+    },
+    {
+        "role" : "user",
+        "content" : "Recite alphabet backwards"
+    },
+    {
+        "role": "assistant",
+        "content" : "{ai_content}"
+    }
+]
