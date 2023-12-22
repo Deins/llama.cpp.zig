@@ -1,7 +1,10 @@
 pub const c = @import("llama.h");
 // utilities
+pub const options = @import("llama_options");
 pub const utils = @import("utils.zig");
 pub const sampling = @import("sampling.zig");
+pub const opencl_utils = if (options.opencl) @import("opencl_utils.zig");
+
 pub usingnamespace sampling;
 pub usingnamespace utils;
 

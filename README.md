@@ -16,7 +16,6 @@ Clone: `git clone --recursive https://github.com/Deins/llama.cpp.zig.git`
 1. Download llama.cpp supported model (usually *.gguf format). For example [this one](https://huggingface.co/TheBloke/rocket-3B-GGUF).
 2. build and run with:
 ```bash
-# set the path to model
 zig build run-simple -Doptimize=ReleaseFast -- --model_path path_to/model.gguf --prompt "Hello! I am AI, and here are the 10 things I like to think about:"
 ```
 See [examples/simple.zig](examples/simple.zig) 
