@@ -28,8 +28,10 @@ pub const Context = struct {
     llama: llama.Context,
     /// zig module
     module: *Module,
-    /// llama.cpp header file module, mostly for internal use
-    h_module: *Module,
+    /// llama.h translated header file module, mostly for internal use
+    llama_h_module: *Module,
+    /// ggml.h  translated header file module, mostly for internal use
+    ggml_h_module: *Module,
 
     pub fn init(b: *std.Build, options: Options) Self {
         var zop = b.addOptions();
@@ -44,17 +46,25 @@ pub const Context = struct {
             .clblast = options.clblast,
         }, "llama.cpp");
 
-        const h_module = llama_cpp.addModule();
-        const deps: []const std.Build.ModuleDependency = &.{ .{
-            .name = "llama.h",
-            .module = h_module,
-        }, .{
-            .name = "llama_options",
-            .module = zop.createModule(),
-        } };
+        const llama_h_module = llama_cpp.moduleLlama();
+        const ggml_h_module = llama_cpp.moduleGgml();
+        const deps: []const std.Build.ModuleDependency = &.{
+            .{
+                .name = "llama.h",
+                .module = llama_h_module,
+            },
+            .{
+                .name = "ggml.h",
+                .module = ggml_h_module,
+            },
+            .{
+                .name = "llama_options",
+                .module = zop.createModule(),
+            },
+        };
         const mod = b.createModule(.{ .source_file = .{ .path = "llama.cpp.zig/llama.zig" }, .dependencies = deps });
 
-        return .{ .b = b, .llama = llama_cpp, .module = mod, .h_module = h_module };
+        return .{ .b = b, .llama = llama_cpp, .module = mod, .llama_h_module = llama_h_module, .ggml_h_module = ggml_h_module };
     }
 
     pub fn link(self: *Self, comp: *CompileStep) void {
@@ -109,7 +119,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         llama_zig.link(main_tests);
-        main_tests.addModule("llama.h", llama_zig.h_module);
+        main_tests.addModule("llama.h", llama_zig.llama_h_module);
         const run_main_tests = b.addRunArtifact(main_tests);
 
         const test_step = b.step("test", "Run library tests");

@@ -82,8 +82,8 @@ pub const Context = struct {
         ctx.addLLama(compile);
     }
 
-    // zig module with translated headers
-    pub fn addModule(ctx: *Context) *Module {
+    /// zig module with translated headers
+    pub fn moduleLlama(ctx: *Context) *Module {
         const tc = ctx.b.addTranslateC(.{
             .source_file = ctx.path("llama.h"),
             .target = ctx.options.target,
@@ -92,6 +92,18 @@ pub const Context = struct {
         if (ctx.options.shared) tc.defineCMacro("LLAMA_SHARED", null);
         tc.defineCMacro("NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
         return tc.addModule("llama.h");
+    }
+
+    /// zig module with translated headers
+    pub fn moduleGgml(ctx: *Context) *Module {
+        const tc = ctx.b.addTranslateC(.{
+            .source_file = ctx.path("ggml.h"),
+            .target = ctx.options.target,
+            .optimize = ctx.options.optimize,
+        });
+        if (ctx.options.shared) tc.defineCMacro("LLAMA_SHARED", null);
+        tc.defineCMacro("NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
+        return tc.addModule("ggml.h");
     }
 
     pub fn addBuildInfo(ctx: *Context, compile: *CompileStep) void {
@@ -145,11 +157,14 @@ pub const Context = struct {
             "embedding",
             "finetune",
             "train-text-from-scratch",
+            "lookahead",
+            "speculative",
         };
+
         for (examples) |ex| {
             const exe = b.addExecutable(.{ .name = ex });
             if (install) b.installArtifact(exe);
-            { // add all c/cpp samples from dir
+            { // add all c/cpp files from example dir
                 const rpath = b.pathJoin(&.{ ctx.path_prefix, "examples", ex });
                 exe.addIncludePath(.{ .path = rpath });
                 var dir = try std.fs.openIterableDirAbsolute(b.pathFromRoot(rpath), .{});

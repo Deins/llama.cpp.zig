@@ -40,7 +40,6 @@ pub fn main() !void {
         log("\tdevices:\n", .{});
         var device_buff: [512]*opencl.ClDeviceId = undefined;
         var device_len: opencl.cl_uint = 0;
-        // pub extern fn clGetDeviceIDs(platform: *ClPlatformId, device_type: ClDeviceType, num_entries: cl_uint, devices: [*]*ClDeviceId, num_devices: *cl_uint) callconv(.C) cl_int;
         try checkErr(opencl.clGetDeviceIDs(p, .all, device_buff.len, &device_buff, &device_len));
         for (device_buff[0..device_len], 0..) |dev, dev_idx| {
             log("\t\tdevice[{}]:\n", .{dev_idx});
@@ -59,6 +58,12 @@ pub fn main() !void {
 
             try checkErr(opencl.clGetDeviceInfo(dev, .max_clock_frequency, param_buff.len, &param_buff, &param_len));
             log("\t\t\tmax_clock_frequency:\t\t{}\n", .{castFromBuf(opencl.cl_uint, param_buff[0..param_len])});
+
+            try checkErr(opencl.clGetDeviceInfo(dev, .address_bits, param_buff.len, &param_buff, &param_len));
+            log("\t\t\taddress_bits:\t\t{}\n", .{castFromBuf(opencl.cl_uint, param_buff[0..param_len])});
+
+            try checkErr(opencl.clGetDeviceInfo(dev, .max_mem_alloc_size, param_buff.len, &param_buff, &param_len));
+            log("\t\t\tmax_mem_alloc_size:\t\t{}\n", .{castFromBuf(opencl.cl_ulong, param_buff[0..param_len])});
 
             log("\t\t\t...\n", .{});
         }
