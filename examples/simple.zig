@@ -17,6 +17,7 @@ pub const Args = struct {
     seed: ?u32 = null,
     threads: ?usize = null,
     threads_batch: ?usize = null,
+    gpu_layers: i32 = 0,
 };
 
 pub fn run(alloc: std.mem.Allocator, args: Args) !void {
@@ -26,6 +27,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     llama.logSet(llama.utils.scopedLog, null);
 
     var mparams = llama.modelDefaultParams();
+    mparams.n_gpu_layers = args.gpu_layers;
     const model = try Model.initFromFile(args.model_path.ptr, mparams);
     defer model.deinit();
 

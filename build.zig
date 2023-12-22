@@ -76,7 +76,7 @@ pub const Context = struct {
 };
 
 pub fn build(b: *std.Build) !void {
-    const use_clblast = b.option(bool, "clblast", "Use clblast acceleration") orelse true;
+    const use_clblast = b.option(bool, "clblast", "Use clblast acceleration") orelse false;
     const opencl_includes = b.option([]const u8, "opencl_includes", "Path to OpenCL headers");
     const opencl_libs = b.option([]const u8, "opencl_libs", "Path to OpenCL libs");
     const install_cpp_samples = b.option(bool, "cpp_samples", "Install llama.cpp samples") orelse false;
@@ -85,7 +85,8 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const lto = b.option(bool, "lto", "Enable LTO optimization, (default: false)") orelse false;
 
-    const opencl_maybe = if (opencl_includes != null or opencl_libs != null) llama.clblast.OpenCL{ .include_path = (opencl_includes orelse ""), .lib_path = (opencl_libs orelse "") } else llama.clblast.OpenCL.fromOCL(b, target);
+    const want_opencl = use_clblast;
+    const opencl_maybe = if (!want_opencl) null else if (opencl_includes != null or opencl_libs != null) llama.clblast.OpenCL{ .include_path = (opencl_includes orelse ""), .lib_path = (opencl_libs orelse "") } else llama.clblast.OpenCL.fromOCL(b, target);
     if (use_clblast and opencl_maybe == null) @panic("OpenCL not found. Please specify include or libs manually if its installed!");
 
     var llama_zig = Context.init(b, .{
