@@ -1,3 +1,5 @@
+//! Prints available opencl devices & their info
+//!
 const std = @import("std");
 const llama = @import("llama");
 const opencl = llama.opencl_utils;
@@ -48,6 +50,17 @@ pub fn main() !void {
 
             try checkErr(opencl.clGetDeviceInfo(dev, .type, param_buff.len, &param_buff, &param_len));
             log("\t\t\ttype:\t\t{}\n", .{castFromBuf(opencl.ClDeviceType, param_buff[0..param_len])});
+
+            try checkErr(opencl.clGetDeviceInfo(dev, .max_compute_units, param_buff.len, &param_buff, &param_len));
+            log("\t\t\tmax_compute_units:\t\t{}\n", .{castFromBuf(opencl.cl_uint, param_buff[0..param_len])});
+
+            try checkErr(opencl.clGetDeviceInfo(dev, .max_work_group_size, param_buff.len, &param_buff, &param_len));
+            log("\t\t\tmax_work_group_size:\t\t{}\n", .{castFromBuf(usize, param_buff[0..param_len])});
+
+            try checkErr(opencl.clGetDeviceInfo(dev, .max_clock_frequency, param_buff.len, &param_buff, &param_len));
+            log("\t\t\tmax_clock_frequency:\t\t{}\n", .{castFromBuf(opencl.cl_uint, param_buff[0..param_len])});
+
+            log("\t\t\t...\n", .{});
         }
     }
 }

@@ -33,3 +33,6 @@ Ideally just `zig build -Dclblast ...`. It should work out of the box if you hav
 For other configurations you will need to find where OpenCL headers/libs are and pass them in using arguments `zig build -Dclblast -Dopencl_includes="/my/path" -Dopencl_libs="/my/path/"`
 Auto detection might be improved in future - let me know what opencl sdk you use. 
 
+### Selecting GPU
+With opencl backend it seems `main_gpu` parameter is ignored. Insted you can set ids of `GGML_OPENCL_PLATFORM` `GGML_OPENCL_DEVICE` system enviroment variables. There is `zig build run-opencl_info` utility available to print all opencl devices detected.
+

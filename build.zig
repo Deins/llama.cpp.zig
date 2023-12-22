@@ -99,7 +99,7 @@ pub fn build(b: *std.Build) !void {
     llama_zig.llama.samples(install_cpp_samples) catch |err| std.log.err("Can't build CPP samples, error: {}", .{err});
 
     llama_zig.sample("examples", "simple");
-    llama_zig.sample("examples", "opencl_info");
+    if (opencl_maybe != null) llama_zig.sample("examples", "opencl_devices");
 
     { // tests
         const main_tests = b.addTest(.{
