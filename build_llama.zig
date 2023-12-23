@@ -11,7 +11,6 @@ pub const Options = struct {
     target: CrossTarget,
     optimize: Mode,
     shared: bool, // static or shared lib
-    lto: bool = false,
     opencl: ?clblast.OpenCL = null,
     clblast: bool = false,
     build_number: usize = 0, // number that will be writen in build info
@@ -195,12 +194,7 @@ pub const Context = struct {
     }
 
     fn common(ctx: Context, lib: *CompileStep) void {
-        // https://github.com/ziglang/zig/issues/15448
-        if (lib.target.getAbi() == .msvc) {
-            lib.defineCMacro("_GNU_SOURCE", null);
-            lib.linkLibC(); // need winsdk + crt
-        } else lib.linkLibCpp(); // linkLibCpp already add (libc++ + libunwind + libc)
-
+        lib.linkLibCpp();
         lib.addIncludePath(ctx.path("")); // root
     }
 

@@ -15,7 +15,6 @@ const llama_cpp_path_prefix = "llama.cpp/"; // point to where llama.cpp root is
 pub const Options = struct {
     target: CrossTarget,
     optimize: Mode,
-    lto: bool = false,
     opencl: ?clblast.OpenCL = null,
     clblast: bool = false,
 };
@@ -41,7 +40,6 @@ pub const Context = struct {
             .target = options.target,
             .optimize = options.optimize,
             .shared = false,
-            .lto = options.lto,
             .opencl = options.opencl,
             .clblast = options.clblast,
         }, "llama.cpp");
@@ -93,7 +91,6 @@ pub fn build(b: *std.Build) !void {
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const lto = b.option(bool, "lto", "Enable LTO optimization, (default: false)") orelse false;
 
     const want_opencl = use_clblast;
     const opencl_maybe = if (!want_opencl) null else if (opencl_includes != null or opencl_libs != null) llama.clblast.OpenCL{ .include_path = (opencl_includes orelse ""), .lib_path = (opencl_libs orelse "") } else llama.clblast.OpenCL.fromOCL(b, target);
@@ -102,7 +99,6 @@ pub fn build(b: *std.Build) !void {
     var llama_zig = Context.init(b, .{
         .target = target,
         .optimize = optimize,
-        .lto = lto,
         .opencl = opencl_maybe,
         .clblast = use_clblast,
     });
