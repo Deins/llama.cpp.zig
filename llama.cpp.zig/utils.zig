@@ -128,6 +128,8 @@ pub const TemplatedPrompt = struct {
             \\{content}{eos}
             \\
         ,
+        /// for prompts that need it, role specific template
+        role_specific_template: ?[]const Message = null,
         /// trim whitespaces for input role
         trim_role: bool = true,
         /// trim whitespaces for input content
@@ -159,6 +161,23 @@ pub const TemplatedPrompt = struct {
 
     pub const template_chatml: Params = .{};
     pub const template_basic_chat: Params = .{ .template = "{role}: {content}{eos}\n" };
+    pub const template_alpaca: Params = .{
+        .template = "### {role}:\n{content}{eos}\n",
+        .role_specific_template = &[_]Message{
+            .{
+                .role = "system",
+                .content = "### Instruction:\n{content}\n",
+            },
+            .{
+                .role = "user",
+                .content = "### Input:\n{content}\n",
+            },
+            .{
+                .role = "assistant",
+                .content = "### Response:\n{content}\n",
+            },
+        },
+    };
 
     // pub const State = enum {
     //     Eos, // last sentence finished, can start new one
@@ -208,7 +227,11 @@ pub const TemplatedPrompt = struct {
         var content = if (self.params.trim_content) trim(content_) else content_;
         const ends_with_generation = std.ascii.endsWithIgnoreCase(content, "{ai_content}");
         if (ends_with_generation) content = content[0 .. content.len - "{ai_content}".len];
+
         var text = self.params.template;
+        if (self.params.role_specific_template) |rsts| for (rsts) |rt| if (std.ascii.eqlIgnoreCase(rt.role, role)) {
+            text = rt.content;
+        };
 
         const replacements = [_][2][]const u8{
             [2][]const u8{ "{bos}", self.params.bos },
@@ -248,6 +271,14 @@ pub const TemplatedPrompt = struct {
         const content = try f.readToEndAlloc(self.alloc(), std.math.maxInt(usize));
         defer self.alloc().free(content);
         try self.addFromJson(content);
+    }
+
+    pub fn templateFromName(name_: []const u8) ?Params {
+        const name = trim(name_);
+        if (std.ascii.eqlIgnoreCase(name, "chatml")) return template_chatml;
+        if (std.ascii.eqlIgnoreCase(name, "basic_chat")) return template_basic_chat;
+        if (std.ascii.eqlIgnoreCase(name, "alpaca")) return template_alpaca;
+        return null;
     }
 };
 

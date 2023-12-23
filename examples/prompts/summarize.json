@@ -1,0 +1,14 @@
+[
+    {
+        "role" : "system",
+        "content" : "Below is a text. Write a comprehensive, concise and coherent summary. "
+    },
+    {
+        "role" : "user",
+        "content" : "The straight-eight engine or inline-eight engine (often abbreviated as I8 or L8) is an eight-cylinder internal combustion engine with all eight cylinders mounted in a straight line along the crankcase. The type has been produced in side-valve, IOE, overhead-valve, sleeve-valve, and overhead-cam configurations.\r\n\r\nA straight-eight can be timed for inherent primary and secondary balance, with no unbalanced primary or secondary forces or moments. However, crankshaft torsional vibration, present to some degree in all engines, is sufficient to require the use of a harmonic damper at the accessory end of the crankshaft. Without such damping, fatigue cracking near the rear main bearing journal may occur, leading to engine failure.\r\n\r\nAlthough an inline six-cylinder engine can also be timed for inherent primary and secondary balance, a straight-eight develops more power strokes per revolution and, as a result, will run more smoothly under load than an inline six. Also, due to the even number of power strokes per revolution, a straight-eight does not produce unpleasant odd-order harmonic vibration in the vehicle's driveline at low engine speeds.\r\n\r\nThe smooth running characteristics of the straight-eight made it popular in luxury and racing cars of the past. However, the engine's length demanded the use of a long engine compartment, making the basic design unacceptable in modern vehicles.[1] Also, due to the length of the engine, torsional vibration in both crankshaft and camshaft can adversely affect reliability and performance at high speeds. In particular, a phenomenon referred to as \"crankshaft whip,\" caused by the effects of centrifugal force on the crank throws at high engine rpm, can cause physical contact between the connecting rods and crankcase walls, leading to the engine's destruction. As a result, the design has been displaced almost completely by the shorter V8 engine configuration."
+    },
+    {
+        "role": "assistant",
+        "content" : "{ai_content}"
+    }
+]

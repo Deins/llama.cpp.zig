@@ -18,6 +18,7 @@ pub const Args = struct {
     threads: ?usize = null,
     threads_batch: ?usize = null,
     gpu_layers: i32 = 0,
+    template: []const u8 = "chatml",
 };
 
 pub fn run(alloc: std.mem.Allocator, args: Args) !void {
@@ -45,7 +46,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     const ctx = try llama.Context.initWithModel(model, cparams);
     defer ctx.deinit();
 
-    var prompt_parms = llama.utils.TemplatedPrompt.Params{};
+    var prompt_parms = llama.utils.TemplatedPrompt.templateFromName(args.template) orelse return error.InvalidTemplate;
     //prompt_parms.setTokensFromModel(model); // usually doesn't work, many models have bos token '<|im_end|>' and other weirdnesses that doesn't match model description
     var prompt_gen = llama.utils.TemplatedPrompt.init(alloc, prompt_parms);
     defer prompt_gen.deinit();
@@ -68,7 +69,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     defer sampling_ctx.deinit();
 
     const n_vocab = model.nVocab();
-    var batch = llama.Batch.init(512, 0, 1);
+    var batch = llama.Batch.init(4096, 0, 1);
     for (tokenizer.getTokens(), 0..) |tok, i| {
         sampling_ctx.accept(ctx, tok, false); // sampling_ctx need to know history of prompt therefore it has to be kept in sync
         batch.add(tok, @intCast(i), &.{0}, false);
