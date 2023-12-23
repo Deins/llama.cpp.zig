@@ -158,10 +158,12 @@ pub const Context = struct {
             "train-text-from-scratch",
             "lookahead",
             "speculative",
+            "parallel",
         };
 
         for (examples) |ex| {
             const exe = b.addExecutable(.{ .name = ex, .target = ctx.options.target, .optimize = ctx.options.optimize });
+            exe.want_lto = false; // TODO: review, causes: error: lld-link: undefined symbol: __declspec(dllimport) _create_locale
             if (install) b.installArtifact(exe);
             { // add all c/cpp files from example dir
                 const rpath = b.pathJoin(&.{ ctx.path_prefix, "examples", ex });
