@@ -23,6 +23,7 @@ pub const Options = struct {
 pub const Context = struct {
     const Self = @This();
     b: *std.Build,
+    options: Options,
     /// llama.cpp build context
     llama: llama.Context,
     /// zig module
@@ -60,9 +61,19 @@ pub const Context = struct {
                 .module = zop.createModule(),
             },
         };
-        const mod = b.createModule(.{ .source_file = .{ .path = "llama.cpp.zig/llama.zig" }, .dependencies = deps });
+        const mod = b.createModule(.{
+            .source_file = .{ .path = "llama.cpp.zig/llama.zig" },
+            .dependencies = deps,
+        });
 
-        return .{ .b = b, .llama = llama_cpp, .module = mod, .llama_h_module = llama_h_module, .ggml_h_module = ggml_h_module };
+        return .{
+            .b = b,
+            .options = options,
+            .llama = llama_cpp,
+            .module = mod,
+            .llama_h_module = llama_h_module,
+            .ggml_h_module = ggml_h_module,
+        };
     }
 
     pub fn link(self: *Self, comp: *CompileStep) void {
@@ -71,7 +82,12 @@ pub const Context = struct {
 
     pub fn sample(self: *Self, path: []const u8, name: []const u8) void {
         const b = self.b;
-        var exe = b.addExecutable(.{ .name = name, .root_source_file = .{ .path = b.pathJoin(&.{ path, std.mem.join(b.allocator, "", &.{ name, ".zig" }) catch @panic("OOM") }) } });
+        var exe = b.addExecutable(.{
+            .name = name,
+            .target = self.options.target,
+            .optimize = self.options.optimize,
+            .root_source_file = .{ .path = b.pathJoin(&.{ path, std.mem.join(b.allocator, "", &.{ name, ".zig" }) catch @panic("OOM") }) },
+        });
         exe.addModule("llama", self.module);
         self.link(exe);
         b.installArtifact(exe); // location when the user invokes the "install" step (the default step when running `zig build`).
