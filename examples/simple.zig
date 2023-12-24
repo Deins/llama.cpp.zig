@@ -33,9 +33,9 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     defer model.deinit();
 
     var cparams = llama.contextDefaultParams();
+    cparams.seed = args.seed orelse 1234;
     const n_ctx_train = model.nCtxTrain();
     const n_ctx = n_ctx_train;
-    cparams.seed = args.seed orelse 1234;
     cparams.n_ctx = @intCast(n_ctx_train);
     if (n_ctx > n_ctx_train) slog.warn("model was trained on only {} context tokens ({} specified)\n", .{ n_ctx_train, n_ctx });
 
@@ -46,9 +46,9 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     const ctx = try llama.Context.initWithModel(model, cparams);
     defer ctx.deinit();
 
-    var prompt_parms = llama.utils.TemplatedPrompt.templateFromName(args.template) orelse return error.InvalidTemplate;
-    //prompt_parms.setTokensFromModel(model); // usually doesn't work, many models have bos token '<|im_end|>' and other weirdnesses that doesn't match model description
-    var prompt_gen = llama.utils.TemplatedPrompt.init(alloc, prompt_parms);
+    var prompt_gen_parms = llama.utils.TemplatedPrompt.templateFromName(args.template) orelse return error.InvalidTemplate;
+    //prompt_parms.setTokensFromModel(model); // behaviour is inconsistent between models, better adapt/specify template directly if needed
+    var prompt_gen = llama.utils.TemplatedPrompt.init(alloc, prompt_gen_parms);
     defer prompt_gen.deinit();
     if (args.json_prompt_path) |path| try prompt_gen.addFromJsonFile(path);
 
@@ -56,6 +56,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     var prompt = try llama.Prompt.init(alloc, .{
         .model = model,
         .ctx = ctx,
+        .batch_size = 512,
     });
     defer prompt.deinit();
     try prompt.appendText(prompt_txt, true);
@@ -97,7 +98,7 @@ pub fn main() !void {
     defer std.process.argsFree(alloc, args_raw);
     const maybe_args = arg_utils.parseArgs(Args, args_raw[1..]) catch |err| {
         slog.err("Could not parse comand line arguments! {}", .{err});
-        //arg_utils.printHelp(Args);
+        arg_utils.printHelp(Args);
         return err;
     };
     const args = if (maybe_args) |args| args else {

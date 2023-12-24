@@ -330,6 +330,12 @@ pub const TokenRingBuffer = struct {
         self.len = 0;
     }
 
+    pub fn shrinkFront(self: *@This(), new_len: usize) void {
+        std.debug.assert(new_len <= self.len);
+        self.idx = (self.idx + new_len - self.len) % self.data.len;
+        self.len = new_len;
+    }
+
     /// appends element at end, overwrites first element if full
     pub fn appendEraseFifo(self: *@This(), t: Token) void {
         std.debug.assert(self.data.len > 0);

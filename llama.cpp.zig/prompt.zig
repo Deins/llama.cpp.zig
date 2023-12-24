@@ -66,18 +66,31 @@ pub fn addOneToken(self: *@This(), token: Token) !void {
     (try self.tokens.addOne()).* = token;
 }
 
-// NOTE: if sampler with grammar is used this might break when shrinking
+/// Shrink prompt by removing characters last characters from back
 pub fn shrink(self: *@This(), new_len: usize) void {
+    if (new_len == self.tokens.items.len) return;
     std.debug.assert(new_len < self.tokens.items.len);
-    if (new_len < self.embed_idx) {
-        self.ctx.kvCacheSeqRm(self.seq_id, @intCast(new_len), -1);
-        //self.ctx.kvCacheSeqShift(self.seq_id, 0, @intCast(new_len), self.tokens.items.len - new_len);
-    }
+    self.ctx.kvCacheSeqRm(self.seq_id, @intCast(new_len), -1);
     self.embed_idx = @min(self.embed_idx, new_len);
-    if (self.embed_idx > 0) self.embed_idx -= 1; // recompute last char
-    self.accepted_idx = @min(self.accepted_idx, new_len);
-    self.sampling.prev.len -= @min(self.sampling.prev.len, self.tokens.items.len - new_len);
+    self.embed_idx -|= 1; // recompute last char
+    const accepted_diff = self.accepted_idx - @min(self.accepted_idx, new_len);
+    self.accepted_idx -= accepted_diff;
+    self.sampling.prev.len -|= accepted_diff;
     self.tokens.shrinkRetainingCapacity(new_len);
+}
+
+/// Shrink by removing first characters from front
+pub fn shrinkFront(self: *@This(), new_len: usize) void {
+    if (new_len == self.tokens.items.len) return;
+    std.debug.assert(new_len < self.tokens.items.len);
+    const tokens = self.tokens.items;
+    const diff = tokens.len - new_len;
+    self.ctx.kvCacheSeqRm(self.seq_id, @intCast(0), new_len);
+    self.ctx.kvCacheSeqShift(self.seq_id, new_len, tokens.len, -diff);
+    std.mem.copyForwards(Token, tokens[0..new_len], tokens[diff..]);
+    self.embed_idx -|= diff;
+    self.accepted_idx -| diff;
+    self.tokens.items.shrinkRetainingCapacity(new_len);
 }
 
 pub fn generateOne(self: *@This()) !Token {

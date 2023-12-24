@@ -198,6 +198,7 @@ pub const Context = struct {
     fn common(ctx: Context, lib: *CompileStep) void {
         lib.linkLibCpp();
         lib.addIncludePath(ctx.path("")); // root
+        if (ctx.options.optimize != .Debug) lib.defineCMacro("NDEBUG", null);
     }
 
     pub fn path(self: Context, p: []const u8) LazyPath {
