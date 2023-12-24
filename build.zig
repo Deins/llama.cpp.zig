@@ -17,6 +17,7 @@ pub const Options = struct {
     optimize: Mode,
     opencl: ?clblast.OpenCL = null,
     clblast: bool = false,
+    hipblas: ?llama.Hipblas = null,
 };
 
 /// Build context
@@ -43,6 +44,7 @@ pub const Context = struct {
             .shared = false,
             .opencl = options.opencl,
             .clblast = options.clblast,
+            .hipblas = options.hipblas,
         }, "llama.cpp");
 
         const llama_h_module = llama_cpp.moduleLlama();
@@ -96,11 +98,21 @@ pub const Context = struct {
         if (b.args) |args| run_exe.addArgs(args); // passes on args like: zig build run -- my fancy args
         run_exe.step.dependOn(b.default_step); // allways copy output, to avoid confusion
         b.step(b.fmt("run-{s}", .{name}), b.fmt("Run {s} example", .{name})).dependOn(&run_exe.step);
+
+        { // debug utils
+            const ztracy = @import("libs/ztracy/build.zig");
+            const ztracy_pkg = ztracy.package(b, self.options.target, self.options.optimize, .{
+                .options = .{ .enable_ztracy = true, .enable_fibers = true },
+            });
+            exe.addModule("ztracy", ztracy_pkg.ztracy);
+            ztracy_pkg.link(exe);
+        }
     }
 };
 
 pub fn build(b: *std.Build) !void {
     const use_clblast = b.option(bool, "clblast", "Use clblast acceleration") orelse false;
+    const use_hipblast = b.option(bool, "hipblas", "Use hipblas acceleration") orelse false;
     const opencl_includes = b.option([]const u8, "opencl_includes", "Path to OpenCL headers");
     const opencl_libs = b.option([]const u8, "opencl_libs", "Path to OpenCL libs");
     const install_cpp_samples = b.option(bool, "cpp_samples", "Install llama.cpp samples") orelse false;
@@ -117,6 +129,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .opencl = opencl_maybe,
         .clblast = use_clblast,
+        .hipblas = if (use_hipblast) llama.Hipblas.initFromEnv(b) else null,
     });
 
     llama_zig.llama.samples(install_cpp_samples) catch |err| std.log.err("Can't build CPP samples, error: {}", .{err});

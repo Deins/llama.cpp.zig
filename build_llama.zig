@@ -12,8 +12,32 @@ pub const Options = struct {
     optimize: Mode,
     shared: bool, // static or shared lib
     opencl: ?clblast.OpenCL = null,
-    clblast: bool = false,
-    build_number: usize = 0, // number that will be writen in build info
+    clblast: bool = false, // opencl only, TODO: cuda
+    /// AMD CPU library that is a thin interface to either AMD roc* or Nvidia cu* libraries.
+    hipblas: ?Hipblas = null,
+    /// use HIP unified memory architecture
+    hipblas_uma: bool = false,
+    /// params fo both CUDA & HIPBLAS
+    cuda_params: CudaParams = .{},
+    /// number that will be writen in build info
+    build_number: usize = 0,
+};
+
+pub const CudaParams = struct {
+    /// llama: use dmmv instead of mmvq CUDA kernels
+    force_dmmv: bool = false,
+    /// llama: use mmq kernels instead of cuBLAS
+    force_mmq: bool = false,
+    /// llama: x stride for dmmv CUDA kernels"
+    dmmv_x: []const u8 = "32",
+    /// llama: y block size for mmv CUDA kernels
+    mmv_y: []const u8 = "1",
+    /// llama: use 16 bit floats for some calculations
+    f16: bool = false,
+    /// llama: iters./thread per block for Q2_K/Q6_K
+    kquants_iter: []const u8 = "2",
+    /// llama: max. batch size for using peer access
+    peer_max_batch_size: []const u8 = "128",
 };
 
 // Build context
@@ -111,6 +135,10 @@ pub const Context = struct {
 
     pub fn addGgml(ctx: *Context, compile: *CompileStep) void {
         ctx.common(compile);
+        { // TODO: remove, just for temp profiling
+            compile.addIncludePath(.{ .path = "libs/ztracy/libs/tracy/tracy" });
+            //compile.defineCMacro("TRACY_ENABLE", null);
+        }
 
         const sources = [_]LazyPath{
             ctx.path("ggml-alloc.c"),
@@ -119,6 +147,7 @@ pub const Context = struct {
             ctx.path("ggml-quants.c"),
             ctx.path("ggml.c"),
         };
+        if (ctx.options.clblast and ctx.options.hipblas != null) @panic("only one backed can be selected!");
         if (ctx.options.clblast) {
             compile.addCSourceFile(.{ .file = ctx.path("ggml-opencl.cpp"), .flags = ctx.flags() });
             compile.defineCMacro("GGML_USE_CLBLAST", null);
@@ -130,6 +159,31 @@ pub const Context = struct {
             });
             blast.link(compile);
             ctx.options.opencl.?.link(compile);
+        }
+        if (ctx.options.hipblas) |hipblas| {
+            _ = hipblas;
+            @panic("TODO: implement");
+            // compile.use_llvm = true; // must compile with clang
+            // const rocm_flags = [_][]const u8{
+            //     "-mllvm",
+            //     "-amdgpu-early-inline-all=true",
+            //     "-mllvm",
+            //     "-amdgpu-function-calls=false",
+            //     ctx.b.fmt("--hip-device-lib-path=\"{s}\"", .{hipblas.lib_dir}),
+            //     "-fhip-new-launch-api",
+            //     "--driver-mode=g++",
+            //     "-lamdhip64",
+            //     "-O3",
+            //     "-x",
+            //     "hip",
+            // };
+            // compile.addLibraryPath(.{ .path = hipblas.lib_dir });
+            // compile.addIncludePath(.{ .path = hipblas.include_dir });
+            // if (ctx.options.hipblas_uma) compile.defineCMacro("GGML_HIP_UMA", null);
+            // compile.addCSourceFile(.{ .file = ctx.path("ggml-cuda.cu"), .flags = &rocm_flags });
+            // // compile.addCSourceFile(.{ .file = ctx.path("ggml-cuda.h"), .flags = ctx.flags() });
+            // if (ctx.options.cuda_params.force_dmmv) compile.defineCMacro("GGML_CUDA_FORCE_DMMV", null);
+            // if (ctx.options.cuda_params.force_mmq) compile.defineCMacro("GGML_CUDA_FORCE_MMQ", null);
         }
         for (sources) |src| compile.addCSourceFile(.{ .file = src, .flags = ctx.flags() });
         //if (ctx.cuda) compile.ctx.path("ggml-cuda.cu");
@@ -159,6 +213,8 @@ pub const Context = struct {
             "lookahead",
             "speculative",
             "parallel",
+            "batched",
+            "batched-bench",
         };
 
         for (examples) |ex| {
@@ -202,5 +258,25 @@ pub const Context = struct {
 
     pub fn path(self: Context, p: []const u8) LazyPath {
         return .{ .path = self.b.pathJoin(&.{ self.path_prefix, p }) };
+    }
+};
+
+/// Build context
+pub const Hipblas = struct {
+    b: *Builder,
+    include_dir: []const u8,
+    lib_dir: []const u8,
+    bin_dir: []const u8,
+    pub fn initFromEnv(b: *Builder) ?Hipblas {
+        const root = std.process.getEnvVarOwned(b.allocator, "HIP_PATH") catch {
+            std.log.err("hipblas not found!", .{});
+            return null;
+        };
+        return .{
+            .b = b,
+            .include_dir = b.pathJoin(&.{ root, "include" }),
+            .lib_dir = b.pathJoin(&.{ root, "lib" }),
+            .bin_dir = b.pathJoin(&.{ root, "bin" }),
+        };
     }
 };
