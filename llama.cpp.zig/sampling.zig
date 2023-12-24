@@ -13,7 +13,7 @@ const TokenDataArray = llama.TokenDataArray;
 const Context = llama.Context;
 
 // sampling parameters
-pub const SamplingParams = struct {
+pub const Params = struct {
     n_prev: i32 = 64, // number of previous tokens to remember
     n_probs: i32 = 0, // if greater than 0, output the probabilities of top n_probs tokens.
     top_k: i32 = 40, // <= 0 to use vocab size
@@ -90,176 +90,174 @@ pub const SamplerType = enum {
     }
 };
 
-pub const SamplingContext = struct {
-    alloc: std.mem.Allocator,
-    // parameters that will be used for sampling
-    params: SamplingParams,
+alloc: std.mem.Allocator,
+// parameters that will be used for sampling
+params: Params,
 
-    // mirostat SamplerType state
-    mirostat_mu: f32 = 0,
+// mirostat SamplerType state
+mirostat_mu: f32 = 0,
 
-    prev: llama.TokenRingBuffer,
-    cur: std.ArrayListUnmanaged(TokenData),
+prev: llama.utils.TokenRingBuffer,
+cur: std.ArrayListUnmanaged(TokenData),
 
-    pub fn init(alloc: std.mem.Allocator, params: SamplingParams) !SamplingContext {
-        return .{
-            .alloc = alloc,
-            .params = params,
-            .prev = .{ .data = try alloc.alloc(Token, @intCast(params.n_prev)) },
-            .cur = .{},
+pub fn init(alloc: std.mem.Allocator, params: Params) !@This() {
+    return .{
+        .alloc = alloc,
+        .params = params,
+        .prev = .{ .data = try alloc.alloc(Token, @intCast(params.n_prev)) },
+        .cur = .{},
+    };
+}
+
+pub fn deinit(self: *@This()) void {
+    self.alloc.free(self.prev.data);
+    self.cur.deinit(self.alloc);
+}
+
+pub fn reset(self: *@This()) void {
+    self.curr.clear();
+    self.prev.clear();
+}
+
+// this is a common sampling function used across the examples for convenience
+// it can serve as a starting point for implementing your own sampling function
+// Note: When using multiple sequences, it is the caller's responsibility to call
+//       llama_sampling_reset when a sequence ends
+//
+// required:
+//  - ctx_main:     context to use for sampling
+//  - self: sampling-specific context
+//
+// optional:
+//  - ctx_cfg:      context to use for classifier-free guidance
+//  - idx:          sample from llama_get_logits_ith(ctx, idx) or 0
+//
+// returns:
+//  - token:      sampled token
+//  - candidates: vector of candidate tokens
+//
+pub fn sample(self: *@This(), ctx_main: *llama.Context, ctx_cfg: ?*llama.Context, idx: i32) !Token {
+    const params = self.params;
+
+    const model = ctx_main.getModel();
+    const n_vocab = model.nVocab();
+
+    const temp = params.temp;
+    const penalty_last_n = if (params.penalty_last_n < 0) params.n_prev else params.penalty_last_n;
+    const penalty_repeat = params.penalty_repeat;
+    const penalty_freq = params.penalty_freq;
+    const penalty_present = params.penalty_present;
+    const mirostat = params.mirostat;
+    const mirostat_tau = params.mirostat_tau;
+    const mirostat_eta = params.mirostat_eta;
+    const penalize_nl = params.penalize_nl;
+
+    var id: Token = 0;
+
+    const logits: [*]f32 = ctx_main.getLogitsIth(idx);
+
+    // apply params.logit_bias map
+    if (params.logit_bias) |bias| {
+        var it = bias.iterator();
+        while (it.next()) |e| logits[@intCast(e.key_ptr.*)] += e.value_ptr.*;
+    }
+
+    self.cur.clearRetainingCapacity();
+
+    for (0..@intCast(n_vocab)) |token_id| try self.cur.append(self.alloc, .{ .id = @intCast(token_id), .logit = logits[token_id], .p = 0 });
+
+    var cur_p: TokenDataArray = .{ .data = self.cur.items.ptr, .size = self.cur.items.len, .sorted = false };
+
+    if (ctx_cfg) |c| ctx_main.sampleClassifierFreeGuidance(&cur_p, c, params.cfg_scale);
+
+    // apply penalties
+    if (self.prev.len > 0) {
+        const nl_logit = logits[@intCast(model.tokenNl())];
+
+        const pparams: RepetitionPenaltyParams = .{
+            .penalty_last_n = @intCast(penalty_last_n),
+            .penalty_repeat = penalty_repeat,
+            .penalty_freq = penalty_freq,
+            .penalty_present = penalty_present,
         };
-    }
-
-    pub fn deinit(self: *@This()) void {
-        self.alloc.free(self.prev.data);
-        self.cur.deinit(self.alloc);
-    }
-
-    pub fn reset(self: *@This()) void {
-        self.curr.clear();
-        self.prev.clear();
-    }
-
-    // this is a common sampling function used across the examples for convenience
-    // it can serve as a starting point for implementing your own sampling function
-    // Note: When using multiple sequences, it is the caller's responsibility to call
-    //       llama_sampling_reset when a sequence ends
-    //
-    // required:
-    //  - ctx_main:     context to use for sampling
-    //  - self: sampling-specific context
-    //
-    // optional:
-    //  - ctx_cfg:      context to use for classifier-free guidance
-    //  - idx:          sample from llama_get_logits_ith(ctx, idx) or 0
-    //
-    // returns:
-    //  - token:      sampled token
-    //  - candidates: vector of candidate tokens
-    //
-    pub fn sample(self: *@This(), ctx_main: *llama.Context, ctx_cfg: ?*llama.Context, idx: i32) !Token {
-        const params = self.params;
-
-        const model = ctx_main.getModel();
-        const n_vocab = model.nVocab();
-
-        const temp = params.temp;
-        const penalty_last_n = if (params.penalty_last_n < 0) params.n_prev else params.penalty_last_n;
-        const penalty_repeat = params.penalty_repeat;
-        const penalty_freq = params.penalty_freq;
-        const penalty_present = params.penalty_present;
-        const mirostat = params.mirostat;
-        const mirostat_tau = params.mirostat_tau;
-        const mirostat_eta = params.mirostat_eta;
-        const penalize_nl = params.penalize_nl;
-
-        var id: Token = 0;
-
-        const logits: [*]f32 = ctx_main.getLogitsIth(@intCast(idx));
-
-        // apply params.logit_bias map
-        if (params.logit_bias) |bias| {
-            var it = bias.iterator();
-            while (it.next()) |e| logits[@intCast(e.key_ptr.*)] += e.value_ptr.*;
+        if (!pparams.isDisabled()) {
+            var p = try RepetitionPenalizer.init(self.alloc, pparams);
+            defer p.deinit();
+            const n = @min(self.prev.len, pparams.penalty_last_n);
+            const begin = @as(isize, @bitCast(self.prev.len)) - n;
+            const end = begin + n;
+            const slices = self.prev.slices(@intCast(begin), @intCast(end));
+            for (slices[0]) |tok| p.addLastToken(tok);
+            for (slices[1]) |tok| p.addLastToken(tok);
+            p.sampleTokenDataArray(&cur_p);
         }
 
-        self.cur.clearRetainingCapacity();
-
-        for (0..@intCast(n_vocab)) |token_id| try self.cur.append(self.alloc, .{ .id = @intCast(token_id), .logit = logits[token_id], .p = 0 });
-
-        var cur_p: TokenDataArray = .{ .data = self.cur.items.ptr, .size = self.cur.items.len, .sorted = false };
-
-        if (ctx_cfg) |c| ctx_main.sampleClassifierFreeGuidance(&cur_p, c, params.cfg_scale);
-
-        // apply penalties
-        if (self.prev.len > 0) {
-            const nl_logit = logits[@intCast(model.tokenNl())];
-
-            const pparams: RepetitionPenaltyParams = .{
-                .penalty_last_n = @intCast(penalty_last_n),
-                .penalty_repeat = penalty_repeat,
-                .penalty_freq = penalty_freq,
-                .penalty_present = penalty_present,
-            };
-            if (!pparams.isDisabled()) {
-                var p = try RepetitionPenalizer.init(self.alloc, pparams);
-                defer p.deinit();
-                const n = @min(self.prev.len, pparams.penalty_last_n);
-                const begin = @as(isize, @bitCast(self.prev.len)) - n;
-                const end = begin + n;
-                const slices = self.prev.slices(@intCast(begin), @intCast(end));
-                for (slices[0]) |tok| p.addLastToken(tok);
-                for (slices[1]) |tok| p.addLastToken(tok);
-                p.sampleTokenDataArray(&cur_p);
-            }
-
-            if (!penalize_nl) {
-                for (0..cur_p.size) |i| {
-                    if (cur_p.data[i].id == model.tokenNl()) {
-                        cur_p.data[i].logit = nl_logit;
-                        break;
-                    }
+        if (!penalize_nl) {
+            for (0..cur_p.size) |i| {
+                if (cur_p.data[i].id == model.tokenNl()) {
+                    cur_p.data[i].logit = nl_logit;
+                    break;
                 }
             }
         }
+    }
 
-        if (self.params.grammar) |g| ctx_main.sampleGrammar(&cur_p, g);
+    if (self.params.grammar) |g| ctx_main.sampleGrammar(&cur_p, g);
 
-        if (temp < 0.0) {
-            // greedy sampling, with probs
-            ctx_main.sampleSoftmax(&cur_p);
-            id = cur_p.data[0].id;
-        } else if (temp == 0.0) {
-            // greedy sampling, no probs
-            id = ctx_main.sampleTokenGreedy(&cur_p);
+    if (temp < 0.0) {
+        // greedy sampling, with probs
+        ctx_main.sampleSoftmax(&cur_p);
+        id = cur_p.data[0].id;
+    } else if (temp == 0.0) {
+        // greedy sampling, no probs
+        id = ctx_main.sampleTokenGreedy(&cur_p);
+    } else {
+        if (mirostat == 1) {
+            const mirostat_m = 100;
+            ctx_main.sampleTemp(&cur_p, temp);
+            id = ctx_main.sampleTokenMirostat(&cur_p, mirostat_tau, mirostat_eta, mirostat_m, &self.mirostat_mu);
+        } else if (mirostat == 2) {
+            ctx_main.sampleTemp(&cur_p, temp);
+            id = ctx_main.sampleTokenMirostatV2(&cur_p, mirostat_tau, mirostat_eta, &self.mirostat_mu);
         } else {
-            if (mirostat == 1) {
-                const mirostat_m = 100;
-                ctx_main.sampleTemp(&cur_p, temp);
-                id = ctx_main.sampleTokenMirostat(&cur_p, mirostat_tau, mirostat_eta, mirostat_m, &self.mirostat_mu);
-            } else if (mirostat == 2) {
-                ctx_main.sampleTemp(&cur_p, temp);
-                id = ctx_main.sampleTokenMirostatV2(&cur_p, mirostat_tau, mirostat_eta, &self.mirostat_mu);
-            } else {
-                // temperature sampling
-                const min_keep: usize = @max(params.n_probs, 1);
-                SamplingContext.samplerQueue(ctx_main, params, &cur_p, min_keep);
-                id = ctx_main.sampleToken(&cur_p);
-                // LOG("sampled token: %5d: '%s'\n", id, llama_token_to_piece(ctx_main, id).c_str());
-            }
+            // temperature sampling
+            const min_keep: usize = @max(params.n_probs, 1);
+            samplerQueue(ctx_main, params, &cur_p, min_keep);
+            id = ctx_main.sampleToken(&cur_p);
+            // LOG("sampled token: %5d: '%s'\n", id, llama_token_to_piece(ctx_main, id).c_str());
         }
-
-        return id;
     }
 
-    pub fn accept(self: *SamplingContext, ctx_main: *llama.Context, id: Token, apply_grammar: bool) void {
-        self.prev.appendEraseFifo(id);
+    return id;
+}
 
-        if (apply_grammar and self.params.grammar != null)
-            ctx_main.grammarAcceptToken(@ptrCast(self.params.grammar.?), id);
-    }
+pub fn accept(self: *@This(), ctx_main: *llama.Context, id: Token, apply_grammar: bool) void {
+    self.prev.appendEraseFifo(id);
 
-    // no reasons to expose this function in header
-    fn samplerQueue(ctx_main: *llama.Context, params: SamplingParams, cur_p: *TokenDataArray, min_keep: usize) void {
-        const n_vocab = ctx_main.getModel().nVocab();
+    if (apply_grammar and self.params.grammar != null)
+        ctx_main.grammarAcceptToken(@ptrCast(self.params.grammar.?), id);
+}
 
-        const temp = params.temp;
-        const top_k = if (params.top_k <= 0) n_vocab else params.top_k;
-        const top_p = params.top_p;
-        const min_p = params.min_p;
-        const tfs_z = params.tfs_z;
-        const typical_p = params.typical_p;
+// no reasons to expose this function in header
+fn samplerQueue(ctx_main: *llama.Context, params: Params, cur_p: *TokenDataArray, min_keep: usize) void {
+    const n_vocab = ctx_main.getModel().nVocab();
 
-        for (params.samplers_sequence) |s| switch (s) {
-            .top_k => ctx_main.sampleTopK(cur_p, top_k, min_keep),
-            .tail_free => ctx_main.sampleTailFree(cur_p, tfs_z, min_keep),
-            .typical_p => ctx_main.sampleTypical(cur_p, typical_p, min_keep),
-            .top_p => ctx_main.sampleTopP(cur_p, top_p, min_keep),
-            .min_p => ctx_main.sampleMinP(cur_p, min_p, min_keep),
-            .temp => ctx_main.sampleTemp(cur_p, temp),
-        };
-    }
-};
+    const temp = params.temp;
+    const top_k = if (params.top_k <= 0) n_vocab else params.top_k;
+    const top_p = params.top_p;
+    const min_p = params.min_p;
+    const tfs_z = params.tfs_z;
+    const typical_p = params.typical_p;
+
+    for (params.samplers_sequence) |s| switch (s) {
+        .top_k => ctx_main.sampleTopK(cur_p, top_k, min_keep),
+        .tail_free => ctx_main.sampleTailFree(cur_p, tfs_z, min_keep),
+        .typical_p => ctx_main.sampleTypical(cur_p, typical_p, min_keep),
+        .top_p => ctx_main.sampleTopP(cur_p, top_p, min_keep),
+        .min_p => ctx_main.sampleMinP(cur_p, min_p, min_keep),
+        .temp => ctx_main.sampleTemp(cur_p, temp),
+    };
+}
 
 pub const RepetitionPenaltyParams = struct {
     penalty_last_n: u32,

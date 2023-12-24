@@ -41,7 +41,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
 
     const cpu_threads = try std.Thread.getCpuCount(); // logical cpu cores
     cparams.n_threads = @intCast(args.threads orelse @min(cpu_threads, 4)); // for me: non batched doesn't scale above 3-4 cores
-    cparams.n_threads_batch = @intCast(args.threads_batch orelse cpu_threads); // for me with 2x hyperthreads per core: n_cores/2 wors tiny bit faster, but lets keep defaults simple
+    cparams.n_threads_batch = @intCast(args.threads_batch orelse cpu_threads / 2); // for me with 2x hyperthreads per core works faster
 
     const ctx = try llama.Context.initWithModel(model, cparams);
     defer ctx.deinit();
@@ -52,83 +52,37 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     defer prompt_gen.deinit();
     if (args.json_prompt_path) |path| try prompt_gen.addFromJsonFile(path);
 
-    const prompt = args.prompt orelse (if (args.json_prompt_path != null) prompt_gen.text.items else "User forgot to pass in promt! What should we do? ");
-
-    var tokenizer = llama.Tokenizer.init(alloc);
-    defer tokenizer.deinit();
-    try tokenizer.tokenize(model, prompt, false, true);
+    const prompt_txt = args.prompt orelse (if (args.json_prompt_path != null) prompt_gen.text.items else "User forgot to pass in promt! What should we do? ");
+    var prompt = try llama.Prompt.init(alloc, .{
+        .model = model,
+        .ctx = ctx,
+    });
+    defer prompt.deinit();
+    try prompt.appendText(prompt_txt, true);
+    const initial_prompt_len = prompt.tokens.items.len;
 
     var detokenizer = llama.Detokenizer.init(alloc);
     defer detokenizer.deinit();
-    for (tokenizer.getTokens()) |tok| try detokenizer.detokenizeWithSpecial(model, tok);
+    for (prompt.tokens.items) |tok| _ = try detokenizer.detokenize(model, tok);
     std.debug.print("PROMPT:\n{s}", .{detokenizer.getText()});
     detokenizer.clearRetainingCapacity();
 
-    // Sampling is responsible of picking next token after decoding computes probability for each token.
-    var sampling_ctx = try llama.sampling.SamplingContext.init(alloc, .{});
-    defer sampling_ctx.deinit();
-
-    const n_vocab = model.nVocab();
-    var batch = llama.Batch.init(4096, 0, 1);
-    for (tokenizer.getTokens(), 0..) |tok, i| {
-        sampling_ctx.accept(ctx, tok, false); // sampling_ctx need to know history of prompt therefore it has to be kept in sync
-        batch.add(tok, @intCast(i), &.{0}, false);
+    // generate response
+    for (0..args.max_len) |_| {
+        const new_text = try detokenizer.detokenize(model, try prompt.generateOneNullOnEos() orelse break);
+        std.debug.print("{s}", .{new_text});
+        detokenizer.clearRetainingCapacity();
     }
-    // make llama_decode to output logits only for the last token of the prompt
-    batch.logits[@as(usize, @intCast(batch.n_tokens)) - 1] = true;
 
-    var n_cur = batch.n_tokens;
-    var n_decoded: usize = 0;
-    var candidates: []TokenData = try alloc.alloc(TokenData, @intCast(n_vocab));
-    defer alloc.free(candidates);
-
-    while (n_cur <= args.max_len) {
-        // evaluate the current batch with the transformer model
-        batch.decode(ctx) catch |err| switch (err) {
-            error.NoKvSlotWarning => slog.warn("could not find a KV slot for the batch (try reducing the size of the batch or increase the context ", .{}),
-            error.UnknownWarning => slog.warn("decoding warning: {}", .{err}),
-            else => return err,
-        };
-
-        // sample the next token
-        {
-            const new_token = blk: {
-                const greedy_sampling = false; // shows how to to decode using lower level functions without sampling_ctx
-                if (greedy_sampling) {
-                    const logits = ctx.getLogitsIth(batch.n_tokens - 1);
-                    for (0..@intCast(n_vocab)) |token_id| candidates[token_id] = .{ .id = @intCast(token_id), .logit = logits[token_id], .p = 0.0 };
-                    var candidates_p: TokenDataArray = .{ .data = candidates.ptr, .size = candidates.len, .sorted = false };
-                    break :blk llama.c.llama_sample_token_greedy(ctx.cPtr(), &candidates_p);
-                } else break :blk try sampling_ctx.sample(ctx, null, batch.n_tokens - 1);
-            };
-
-            try detokenizer.detokenizeWithSpecial(model, new_token);
-            defer detokenizer.clearRetainingCapacity();
-            std.debug.print("{s}", .{detokenizer.getText()});
-
-            // is it an end of stream?
-            if (new_token == model.tokenEos()) {
-                std.debug.print("\nGeneration stopped: EOS token reached\n", .{});
-                break;
-            }
-
-            if (n_cur >= args.max_len) {
-                std.debug.print("\nGeneeration stopped: max_len reached\n", .{});
-                break;
-            }
-
-            // prepare the next batch
-            batch.clear();
-
-            // push this new token for next evaluation
-            sampling_ctx.accept(ctx, new_token, true);
-            batch.add(new_token, n_cur, &.{0}, true);
-
-            n_decoded += 1;
-        }
-
-        n_cur += 1;
+    // Generate alternate response
+    prompt.shrink(initial_prompt_len);
+    std.debug.print("\n\nAlternate reponse:\n", .{});
+    for (0..args.max_len) |_| {
+        const new_text = try detokenizer.detokenize(model, try prompt.generateOneNullOnEos() orelse break);
+        std.debug.print("{s}", .{new_text});
+        detokenizer.clearRetainingCapacity();
     }
+    std.debug.print("\n", .{});
 
     ctx.printTimings();
 }

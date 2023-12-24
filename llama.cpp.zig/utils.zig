@@ -1,9 +1,10 @@
-pub const std = @import("std");
-pub const llama = @import("llama.zig");
+const std = @import("std");
+const llama = @import("llama.zig");
 
 const Token = llama.Token;
 const TokenType = llama.TokenType;
 const LogLevel = llama.LogLevel;
+const SeqId = llama.SeqId;
 
 pub fn scopedLog(level: LogLevel, text_: [*:0]const u8, user_data: ?*anyopaque) callconv(.C) void {
     _ = user_data;
@@ -52,6 +53,11 @@ pub const Tokenizer = struct {
     }
 };
 
+/// direct token lookup from vocab
+pub fn tokenGetText(model: *llama.Model, token: llama.Token) []const u8 {
+    return std.mem.span(model.tokenGetText(token));
+}
+
 pub const Detokenizer = struct {
     data: std.ArrayList(u8),
 
@@ -70,7 +76,7 @@ pub const Detokenizer = struct {
     }
 
     /// de-tokenize another token. Doesn't display special tokens.
-    pub fn detokenize(self: *@This(), model: *llama.Model, token: llama.Token) !void {
+    pub fn detokenize(self: *@This(), model: *llama.Model, token: llama.Token) ![]const u8 {
         try self.data.ensureUnusedCapacity(16);
         var size = model.tokenToPiece(token, self.data.unusedCapacitySlice());
         if (size < 0) {
@@ -78,26 +84,26 @@ pub const Detokenizer = struct {
             size = model.tokenToPiece(token, self.data.unusedCapacitySlice());
             if (size < 0) @panic("unexpected tokenization error"); // TODO: switch to unreachable once sure it works
         }
-        self.data.items = self.data.items.ptr[0 .. self.data.items.len + @as(usize, @intCast(size))];
+        const len = self.data.items.len;
+        self.data.items = self.data.items.ptr[0 .. len + @as(usize, @intCast(size))];
+        return self.data.items[len..];
     }
 
     /// detokenize, but also display special tokens in their text form. (useful for debugging raw prompt)
-    pub fn detokenizeWithSpecial(self: *@This(), model: *llama.Model, token: llama.Token) !void {
+    pub fn detokenizeWithSpecial(self: *@This(), model: *llama.Model, token: llama.Token) ![]const u8 {
         switch (model.tokenGetType(token)) {
-            .LLAMA_TOKEN_TYPE_NORMAL, .LLAMA_TOKEN_TYPE_BYTE => try self.detokenize(model, token),
+            .LLAMA_TOKEN_TYPE_NORMAL, .LLAMA_TOKEN_TYPE_BYTE => return try self.detokenize(model, token),
             .LLAMA_TOKEN_TYPE_UNUSED,
             .LLAMA_TOKEN_TYPE_UNDEFINED,
             .LLAMA_TOKEN_TYPE_USER_DEFINED,
             .LLAMA_TOKEN_TYPE_CONTROL,
             .LLAMA_TOKEN_TYPE_UNKNOWN,
-            => try self.detokenizeDirect(model, token),
+            => {
+                const len = self.data.items.len;
+                try self.data.appendSlice(tokenGetText(model, token));
+                return self.data.items[len..];
+            },
         }
-    }
-
-    /// direct token lookup from vocab
-    pub fn detokenizeDirect(self: *@This(), model: *llama.Model, token: llama.Token) !void {
-        const text = std.mem.span(model.tokenGetText(token));
-        try self.data.appendSlice(text);
     }
 
     // ascii, trims whitespaces and special chars

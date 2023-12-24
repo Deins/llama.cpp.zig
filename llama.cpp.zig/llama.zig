@@ -1,12 +1,13 @@
 pub const c = @import("llama.h");
 // utilities
 pub const options = @import("llama_options");
+pub const Prompt = @import("prompt.zig");
+pub const Sampling = @import("sampling.zig");
 pub const utils = @import("utils.zig");
-pub const sampling = @import("sampling.zig");
-pub const opencl_utils = if (options.opencl) @import("opencl_utils.zig");
+pub const Tokenizer = utils.Tokenizer;
+pub const Detokenizer = utils.Detokenizer;
 
-pub usingnamespace sampling;
-pub usingnamespace utils;
+pub const opencl_utils = if (options.opencl) @import("opencl_utils.zig");
 
 //
 //  Actual llama.h bindings
@@ -278,29 +279,29 @@ pub const Context = opaque {
     /// seq_id < 0 : match any sequence
     /// p0 < 0     : [0,  p1]
     /// p1 < 0     : [p0, inf)
-    pub inline fn kvCacheSeqRm(self: *const @This(), seq_id: SeqId, p0: Pos, p1: Pos) void {
-        return c.llama_kv_cache_seq_rm(self.cCPtr(), seq_id, p0, p1);
+    pub inline fn kvCacheSeqRm(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos) void {
+        return c.llama_kv_cache_seq_rm(self.cPtr(), seq_id, p0, p1);
     }
 
     /// Copy all tokens that belong to the specified sequence to another sequence
     /// Note that this does not allocate extra KV cache memory - it simply assigns the tokens to the new sequence
     /// p0 < 0 : [0,  p1]
     /// p1 < 0 : [p0, inf)
-    pub inline fn kvCacheSeqCp(self: *const @This(), seq_id_src: SeqId, seq_id_dst: SeqId, p0: Pos, p1: Pos) void {
-        return c.llama_kv_cache_seq_cp(self.cCPtr(), seq_id_src, seq_id_dst, p0, p1);
+    pub inline fn kvCacheSeqCp(self: *@This(), seq_id_src: SeqId, seq_id_dst: SeqId, p0: Pos, p1: Pos) void {
+        return c.llama_kv_cache_seq_cp(self.cPtr(), seq_id_src, seq_id_dst, p0, p1);
     }
 
     /// Removes all tokens that do not belong to the specified sequence
-    pub inline fn kvCacheSeqKeep(self: *const @This(), seq_id: SeqId) void {
-        return c.llama_kv_cache_seq_keep(self.cCPtr(), seq_id);
+    pub inline fn kvCacheSeqKeep(self: *@This(), seq_id: SeqId) void {
+        return c.llama_kv_cache_seq_keep(self.cPtr(), seq_id);
     }
 
     /// Adds relative position "delta" to all tokens that belong to the specified sequence and have positions in [p0, p1)
     /// If the KV cache is RoPEd, the KV data is updated accordingly
     /// p0 < 0 : [0,  p1]
     /// p1 < 0 : [p0, inf)
-    pub inline fn kvCacheSeqShift(self: *const @This(), seq_id: SeqId, p0: Pos, p1: Pos, delta: Pos) void {
-        return c.llama_kv_cache_seq_shift(self.cCPtr(), seq_id, p0, p1, delta);
+    pub inline fn kvCacheSeqShift(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos, delta: Pos) void {
+        return c.llama_kv_cache_seq_shift(self.cPtr(), seq_id, p0, p1, delta);
     }
 
     //
@@ -309,7 +310,7 @@ pub const Context = opaque {
 
     /// Returns the maximum size in bytes of the state (rng, logits, embedding
     /// and kv_cache) - will often be smaller after compacting tokens
-    pub inline fn getStateSize(self: *const @This()) usize {
+    pub inline fn getStateSize(self: *@This()) usize {
         return c.llama_get_state_size(self.cCPtr());
     }
 
