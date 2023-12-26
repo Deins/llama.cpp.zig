@@ -66,11 +66,19 @@ pub fn addOneToken(self: *@This(), token: Token) !void {
     (try self.tokens.addOne()).* = token;
 }
 
-/// Shrink prompt by removing characters last characters from back
+/// invalidate prompt forcing reprocess everything from beginning
+pub fn invalidate(self: *@This()) void {
+    self.ctx.kvCacheSeqRm(self.seq_id, 0, -1);
+    self.accepted_idx = 0;
+    self.embed_idx = 0;
+    self.sampling.reset();
+}
+
+/// Shrink prompt by removing last characters from back
 pub fn shrink(self: *@This(), new_len: usize) void {
     if (new_len == self.tokens.items.len) return;
     std.debug.assert(new_len < self.tokens.items.len);
-    self.ctx.kvCacheSeqRm(self.seq_id, @intCast(new_len), -1);
+    self.ctx.kvCacheSeqRm(self.seq_id, @intCast(new_len), @intCast(self.tokens.items.len));
     self.embed_idx = @min(self.embed_idx, new_len);
     self.embed_idx -|= 1; // recompute last char
     const accepted_diff = self.accepted_idx - @min(self.accepted_idx, new_len);

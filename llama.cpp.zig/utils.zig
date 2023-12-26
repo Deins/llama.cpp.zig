@@ -130,8 +130,8 @@ pub const TemplatedPrompt = struct {
     pub const Params = struct {
         /// prompt template
         template: []const u8 =
-            \\{bos}{role}
-            \\{content}{eos}
+            \\{{bos}}{{role}}
+            \\{{content}}{{eos}}
             \\
         ,
         /// for prompts that need it, role specific template
@@ -141,7 +141,7 @@ pub const TemplatedPrompt = struct {
         /// trim whitespaces for input content
         trim_content: bool = true,
         // optional user defined replacements in format: {[2][]const u8 {"needle_to_replace", "replacement"}, ...}
-        additional_replacements: [][2][]const u8 = &.{},
+        additional_replacements: []const [2][]const u8 = &.{},
 
         // output values
         /// begining of sentence special token
@@ -166,21 +166,21 @@ pub const TemplatedPrompt = struct {
     };
 
     pub const template_chatml: Params = .{};
-    pub const template_basic_chat: Params = .{ .template = "{role}: {content}{eos}\n" };
+    pub const template_basic_chat: Params = .{ .template = "{{role}}: {{content}}{{eos}}\n" };
     pub const template_alpaca: Params = .{
-        .template = "### {role}:\n{content}{eos}\n",
+        .template = "### {{role}}:\n{{content}}{{eos}}\n",
         .role_specific_template = &[_]Message{
             .{
                 .role = "system",
-                .content = "### Instruction:\n{content}\n",
+                .content = "### Instruction:\n{{content}}\n",
             },
             .{
                 .role = "user",
-                .content = "### Input:\n{content}\n",
+                .content = "### Input:\n{{content}}\n",
             },
             .{
                 .role = "assistant",
-                .content = "### Response:\n{content}\n",
+                .content = "### Response:\n{{content}}\n",
             },
         },
     };
@@ -231,8 +231,8 @@ pub const TemplatedPrompt = struct {
     pub fn add(self: *Self, role_: []const u8, content_: []const u8) !void {
         var role = if (self.params.trim_role) trim(role_) else role_;
         var content = if (self.params.trim_content) trim(content_) else content_;
-        const ends_with_generation = std.ascii.endsWithIgnoreCase(content, "{ai_content}");
-        if (ends_with_generation) content = content[0 .. content.len - "{ai_content}".len];
+        const ends_with_generation = std.ascii.endsWithIgnoreCase(content, "{{generate}}");
+        if (ends_with_generation) content = content[0 .. content.len - "{{generate}}".len];
 
         var text = self.params.template;
         if (self.params.role_specific_template) |rsts| for (rsts) |rt| if (std.ascii.eqlIgnoreCase(rt.role, role)) {
@@ -240,10 +240,10 @@ pub const TemplatedPrompt = struct {
         };
 
         const replacements = [_][2][]const u8{
-            [2][]const u8{ "{bos}", self.params.bos },
-            [2][]const u8{ "{eos}", if (ends_with_generation) "" else self.params.eos },
-            [2][]const u8{ "{role}", role },
-            [2][]const u8{ "{content}", content },
+            [2][]const u8{ "{{bos}}", self.params.bos },
+            [2][]const u8{ "{{eos}}", if (ends_with_generation) "" else self.params.eos },
+            [2][]const u8{ "{{role}}", role },
+            [2][]const u8{ "{{content}}", content },
             [2][]const u8{ "\n", self.params.nl },
         };
         for (replacements) |r| {
@@ -286,13 +286,17 @@ pub const TemplatedPrompt = struct {
         if (std.ascii.eqlIgnoreCase(name, "alpaca")) return template_alpaca;
         return null;
     }
+
+    pub fn clearRetainingCapacity(self: *@This()) void {
+        self.text.clearRetainingCapacity();
+    }
 };
 
 // ascii TODO: unicode?
 pub fn trimFront(text: []const u8) []const u8 {
     var i: usize = 0;
     while (i < text.len and text[i] <= ' ') i += 1; // ascii
-    return text[0..];
+    return text[i..];
 }
 
 // ascii TODO: unicode?
