@@ -8,10 +8,10 @@
             "name": "(Windows) Launch",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/zig-out/bin/simple.exe",
-            "args": ["--model_path", "..\\llm_models\\dolphin-2.2.1-mistral-7b.Q4_K_S.gguf"],
+            "program": "${workspaceFolder}/zig-out/bin/interactive.exe",
+            "args": ["--model_path", "..\\llm_models\\dolphin-2.2.1-mistral-7b.Q4_K_S.gguf", "--template", "chatml"],
             "stopAtEntry": false,
-            "cwd": "${fileDirname}",
+            "cwd": "${workspaceRoot}",
             "environment": [{"name": "GGML_OPENCL_PLATFORM", "value" : "0" }, {"name" :"GGML_OPENCL_DEVICE", "value" : "1"}],
             "console": "integratedTerminal"
         }

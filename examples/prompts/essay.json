@@ -1,0 +1,10 @@
+[
+    {
+        "role" : "user",
+        "content" : "Write the original essay for the following summary: A sleeveless dress with a round neck is a great day dress and can be worn for both formal and casual occasions. It has a sweetheart neckline and is made from 100% silk. The dress has a chiffon overlay that covers up the miniskirt and still adds to the class of the dress. "
+    },
+    {
+        "role" : "assistant",
+        "content" : "{{generate}}"
+    }
+]

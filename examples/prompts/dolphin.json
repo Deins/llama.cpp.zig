@@ -9,6 +9,6 @@
     },
     {
         "role": "assistant",
-        "content" : "{ai_content}"
+        "content" : "{{generate}}"
     }
 ]

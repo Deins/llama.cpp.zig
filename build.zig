@@ -88,6 +88,7 @@ pub const Context = struct {
             .optimize = self.options.optimize,
             .root_source_file = .{ .path = b.pathJoin(&.{ path, std.mem.join(b.allocator, "", &.{ name, ".zig" }) catch @panic("OOM") }) },
         });
+        exe.stack_size = 32 * 1024 * 1024;
         exe.addModule("llama", self.module);
         self.link(exe);
         b.installArtifact(exe); // location when the user invokes the "install" step (the default step when running `zig build`).
@@ -122,6 +123,7 @@ pub fn build(b: *std.Build) !void {
     llama_zig.llama.samples(install_cpp_samples) catch |err| std.log.err("Can't build CPP samples, error: {}", .{err});
 
     llama_zig.sample("examples", "simple");
+    llama_zig.sample("examples", "interactive");
     if (opencl_maybe != null) llama_zig.sample("examples", "opencl_devices");
 
     { // tests

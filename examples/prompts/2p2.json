@@ -1,0 +1,14 @@
+[
+    {
+        "role" : "system",
+        "content" : "You are helpful assistent that tries to precisely and correctly answer any user requests. You answers are short as possible."
+    },
+    {
+        "role" : "user",
+        "content" : "Whats 2+2?"
+    },
+    {
+        "role": "assistant",
+        "content" : "{{generate}}"
+    }
+]

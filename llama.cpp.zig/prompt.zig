@@ -90,6 +90,7 @@ pub fn shrinkFront(self: *@This(), new_len: usize) void {
     std.mem.copyForwards(Token, tokens[0..new_len], tokens[diff..]);
     self.embed_idx -|= diff;
     self.accepted_idx -| diff;
+    self.sampling.prev.eraseFront();
     self.tokens.items.shrinkRetainingCapacity(new_len);
 }
 
