@@ -62,6 +62,8 @@ pub const Context = struct {
         const lib_opt = .{ .name = "llama.cpp", .target = ctx.options.target, .optimize = ctx.options.optimize };
         const lib = if (ctx.options.shared) ctx.b.addSharedLibrary(lib_opt) else ctx.b.addStaticLibrary(lib_opt);
         ctx.addAll(lib);
+        if (ctx.options.target.getAbi() != .msvc)
+            lib.defineCMacro("_GNU_SOURCE", null);
         if (ctx.options.shared) {
             lib.defineCMacro("LLAMA_SHARED", null);
             lib.defineCMacro("LLAMA_BUILD", null);
