@@ -76,12 +76,13 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     std.debug.print("{s}", .{if (prompt_gen != null)
         \\TEMPLATED PROMPT (start typing)\n
         \\input \g to generate response
-        \\input \u {{user}} to switch user the prompt is for 
+        \\input \u {{user}} to switch user the prompt is for. 
+        \\          Most prompt formats expect either: system, user & assistant
         \\--------------------------------------------------------------------------------
         \\
     else
         \\RAW PROMPT (start typing)\n
-        \\If you use case of instructed model, you have to follow the template yourself.
+        \\If you use instructed model, you have to follow the template yourself.
         \\input \g to generate
         \\--------------------------------------------------------------------------------
         \\
