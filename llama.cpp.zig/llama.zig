@@ -68,6 +68,9 @@ pub const Backend = opaque {
 };
 
 pub const Model = extern opaque {
+    pub const Params = ModelParams;
+    pub const defaultParams = modelDefaultParams;
+
     pub inline fn initFromFile(path_to_file: CStr, params: ModelParams) !*Model {
         const ptr = c.llama_load_model_from_file(path_to_file, params);
         if (ptr == null) return error.FailedToLoadModel;
@@ -113,19 +116,19 @@ pub const Model = extern opaque {
 
     // Get metadata key name by index
     pub inline fn metaKeyByIndex(self: *const @This(), i: usize, out_buff: []u8) ?[]u8 {
-        const idx = c.llama_model_meta_key_by_index(self.cCPtr(), i, out_buff.ptr, out_buff.len);
-        return if (idx >= 0) out_buff[0..idx] else null;
+        const idx = c.llama_model_meta_key_by_index(self.cCPtr(), @intCast(i), out_buff.ptr, out_buff.len);
+        return if (idx >= 0) out_buff[0..@intCast(idx)] else null;
     }
 
     // Get metadata value as a string by index
     pub inline fn metaValStrByIndex(self: *const @This(), i: usize, out_buff: []u8) ?[]u8 {
-        const idx = c.llama_model_meta_val_str_by_index(self.cCPtr(), i, out_buff.ptr, out_buff.len);
-        return if (idx >= 0) out_buff[0..idx] else null;
+        const idx = c.llama_model_meta_val_str_by_index(self.cCPtr(), @intCast(i), out_buff.ptr, out_buff.len);
+        return if (idx >= 0) out_buff[0..@intCast(idx)] else null;
     }
 
     // Get a string describing the model type
-    pub inline fn desc(self: *const @This(), out_buff: []u8) ?[]u8 {
-        const idx = c.llama_model_desc(self.cCPtr(), out_buff.ptr, out_buff.len);
+    pub inline fn desc(self: *const @This(), out_buff: []u8) []u8 {
+        const idx: usize = @intCast(c.llama_model_desc(self.cCPtr(), out_buff.ptr, out_buff.len));
         return if (idx >= 0) out_buff[0..idx] else null;
     }
 
@@ -238,6 +241,9 @@ pub const Model = extern opaque {
 };
 
 pub const Context = opaque {
+    pub const Params = ContextParams;
+    pub const defaultParams = contextDefaultParams;
+
     pub inline fn initWithModel(model: *Model, params: ContextParams) !*Context {
         const ptr = c.llama_new_context_with_model(@ptrCast(model), params) orelse return error.ContextCreationFailed;
         return @ptrCast(ptr);
