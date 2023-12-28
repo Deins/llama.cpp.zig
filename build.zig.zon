@@ -2,12 +2,11 @@
     .name = "llama.cpp.zig",
     .version = "0.0.4",
     .paths = .{
-        "build.zig",
-        "build.zig.zon",
-        "build_llama.zig",
+        "",
         "src",
         "llama.cpp.zig",
         "examples",
+        "llama.cpp",
     },
     .dependencies = .{
         .clblast = .{
