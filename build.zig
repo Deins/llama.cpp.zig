@@ -8,9 +8,9 @@ const Mode = std.builtin.Mode;
 const TranslateCStep = std.Build.TranslateCStep;
 const Module = std.Build.Module;
 
-const clblast = @import("clblast");
+pub const clblast = @import("clblast");
 
-const llama_cpp_path_prefix = "llama.cpp/"; // point to where llama.cpp root is
+pub const llama_cpp_path_prefix = "llama.cpp/"; // point to where llama.cpp root is
 
 pub const Options = struct {
     target: CrossTarget,

@@ -36,7 +36,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     var cparams = llama.contextDefaultParams();
     cparams.seed = args.seed orelse 1234;
     const n_ctx_train = model.nCtxTrain();
-    const n_ctx = n_ctx_train;
+    const n_ctx = n_ctx_train * 2;
     cparams.n_ctx = @intCast(n_ctx_train);
     if (n_ctx > n_ctx_train) slog.warn("model was trained on only {} context tokens ({} specified)\n", .{ n_ctx_train, n_ctx });
 
@@ -101,7 +101,6 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
                 var ti = trimFront(input);
                 if (std.ascii.startsWithIgnoreCase(ti, "\\u")) {
                     if (input_txt.items.len > 0) {
-                        slog.info("add to prompt: '{s}'", .{input_txt.items});
                         try gen.add(user, input_txt.items);
                         input_txt.clearRetainingCapacity();
                     }
@@ -113,6 +112,12 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
                 if (std.ascii.indexOfIgnoreCase(ti, "\\g")) |pos| {
                     try input_txt.appendSlice(trimBack(ti[0..pos]));
                     break;
+                }
+                if (std.ascii.startsWithIgnoreCase(ti, "\\p")) {
+                    for (prompt.tokens.items) |tok| _ = try detokenizer.detokenizeWithSpecial(model, tok);
+                    std.debug.print("PROMPT:\n" ++ "-" ** 80 ++ "\n{s}\n" ++ "-" ** 80 ++ "\n", .{detokenizer.getText()});
+                    detokenizer.clearRetainingCapacity();
+                    continue;
                 }
                 try input_txt.appendSlice(trimBack(ti));
                 try input_txt.append('\n');
@@ -139,17 +144,15 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
             std.debug.print("{s}", .{new_text});
             detokenizer.clearRetainingCapacity();
         }
-
-        // debug
-        for (prompt.tokens.items) |tok| _ = try detokenizer.detokenizeWithSpecial(model, tok);
-        std.debug.print("PROMPT:\n" ++ "-" ** 80 ++ "\n{s}\n" ++ "-" ** 80 ++ "\n", .{detokenizer.getText()});
-        detokenizer.clearRetainingCapacity();
+        std.debug.print("\n", .{});
     }
 
     ctx.printTimings();
 }
 
 pub fn main() !void {
+    //arg_utils.configure_console();
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit() != .ok) @panic("memory leak detected when exiting");
     const alloc = gpa.allocator();
