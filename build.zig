@@ -43,7 +43,7 @@ pub const Context = struct {
             .shared = false,
             .opencl = options.opencl,
             .clblast = options.clblast,
-        }, "llama.cpp");
+        });
 
         const llama_h_module = llama_cpp.moduleLlama();
         const ggml_h_module = llama_cpp.moduleGgml();

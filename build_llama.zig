@@ -24,7 +24,8 @@ pub const Context = struct {
     path_prefix: []const u8 = "llama.cpp",
     lib: ?*CompileStep = null,
 
-    pub fn init(b: *Builder, op: Options, path_prefix: []const u8) Context {
+    pub fn init(b: *Builder, op: Options) Context {
+        const path_prefix = b.pathJoin(&.{ thisPath(), "/llama.cpp" });
         const zig_version = @import("builtin").zig_version_string;
         const commit_hash = std.ChildProcess.exec(
             .{ .allocator = b.allocator, .argv = &.{ "git", "rev-parse", "HEAD" } },
@@ -33,7 +34,7 @@ pub const Context = struct {
             unreachable;
         };
 
-        const build_info_path = b.pathJoin(&.{ path_prefix, "common", "build-info.cpp" });
+        const build_info_path = b.pathJoin(&.{ "common", "build-info.cpp" });
         const build_info = b.fmt(
             \\int LLAMA_BUILD_NUMBER = {};
             \\char const *LLAMA_COMMIT = "{s}";
@@ -207,3 +208,7 @@ pub const Context = struct {
         return .{ .path = self.b.pathJoin(&.{ self.path_prefix, p }) };
     }
 };
+
+fn thisPath() []const u8 {
+    return std.fs.path.dirname(@src().file) orelse ".";
+}
