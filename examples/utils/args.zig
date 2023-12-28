@@ -8,7 +8,7 @@ pub fn parseArgs(comptime ArgsStruct: type, args: [][:0]u8) !?ArgsStruct {
     var total_parsed_args: usize = 0;
     while (arg_i < args.len) : (arg_i += 1) {
         var curr = args[arg_i];
-        var next: ?[:0]const u8 = if (arg_i + 1 < args.len) args[arg_i + 1] else null;
+        const next: ?[:0]const u8 = if (arg_i + 1 < args.len) args[arg_i + 1] else null;
         if (curr.len <= 2 or !std.ascii.startsWithIgnoreCase(curr, "--")) {
             slog.err("Unknown argument: '{s}'", .{curr});
             return error.InvalidArguments;
@@ -39,7 +39,7 @@ pub fn parseArgs(comptime ArgsStruct: type, args: [][:0]u8) !?ArgsStruct {
 pub fn printHelp(comptime ArgsStruct: type) void {
     const help = comptime blk: {
         var help: [:0]const u8 = "Help: Arguments:\n" ++ "\tArgument\t\tType\t\tDefault value\n";
-        inline for (@typeInfo(ArgsStruct).Struct.fields) |field| {
+        for (@typeInfo(ArgsStruct).Struct.fields) |field| {
             help = help ++ "\t--" ++ field.name ++ "\t\t" ++ @typeName(field.type) ++ "\n"; // todo: default value
         }
         break :blk help;
@@ -77,7 +77,7 @@ pub fn configure_console() void {
                 if (SetConsoleOutputCP(CP_UTF8) == 0) {
                     std.log.scoped(.console).err("Can't configure windows console to UTF8!", .{});
                 }
-                var stdout_handle: HANDLE = GetStdHandle(STD_OUTPUT_HANDLE) catch |err| {
+                const stdout_handle: HANDLE = GetStdHandle(STD_OUTPUT_HANDLE) catch |err| {
                     std.log.scoped(.console).err("Windows: Can't get stdout handle! err: {}", .{err});
                     return;
                 };
@@ -85,7 +85,7 @@ pub fn configure_console() void {
                 //     std.log.scoped(.console).err("Windows: Can't get stdin handle! err: {}", .{err});
                 //     return;
                 // };
-                var stderr_handle: HANDLE = GetStdHandle(STD_ERROR_HANDLE) catch |err| {
+                const stderr_handle: HANDLE = GetStdHandle(STD_ERROR_HANDLE) catch |err| {
                     std.log.scoped(.console).err("Windows: Can't get stderr handle! err: {}", .{err});
                     return;
                 };

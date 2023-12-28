@@ -229,7 +229,7 @@ pub const TemplatedPrompt = struct {
     }
 
     pub fn add(self: *Self, role_: []const u8, content_: []const u8) !void {
-        var role = if (self.params.trim_role) trim(role_) else role_;
+        const role = if (self.params.trim_role) trim(role_) else role_;
         var content = if (self.params.trim_content) trim(content_) else content_;
         const ends_with_generation = std.ascii.endsWithIgnoreCase(content, "{{generate}}");
         if (ends_with_generation) content = content[0 .. content.len - "{{generate}}".len];
@@ -265,7 +265,7 @@ pub const TemplatedPrompt = struct {
     pub fn addFromJson(self: *Self, json: []const u8) !void {
         var arena = std.heap.ArenaAllocator.init(self.alloc());
         const aaloc = arena.allocator();
-        var parsed = try std.json.parseFromSlice([]Message, aaloc, json, .{});
+        const parsed = try std.json.parseFromSlice([]Message, aaloc, json, .{});
         try self.addMany(parsed.value);
         arena.deinit();
     }
@@ -356,8 +356,8 @@ pub const TokenRingBuffer = struct {
     /// @param start_idx first element index (0 => first inserted element, self.len-1 => last element)
     pub fn slices(self: *@This(), start_idx: usize, len: usize) [2][]Token {
         std.debug.assert(self.data.len > 0);
-        var a = self.idx + start_idx;
-        var b = a + len;
+        const a = self.idx + start_idx;
+        const b = a + len;
         if (b <= self.data.len) return [2][]Token{ self.data[a..b], &.{} };
         return [2][]Token{ self.data[a..self.data.len], self.data[0 .. b % self.data.len] };
     }

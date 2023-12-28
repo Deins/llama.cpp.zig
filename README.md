@@ -1,5 +1,5 @@
 # llama.cpp.zig
-llama.cpp bindings and utilities for zig. Currently targeting zig `0.11.x`.
+llama.cpp bindings and utilities for zig. Currently targeting zig `0.11.x`, there is high chance nightly works as well (`0.12.0-dev.1856+94c63f31f` when I checked) (using same branch, only few places have needed patching where @hasDecl was enough to support both versions).
 
 * Implements llama.h for nicer interaction with zig.
     * Removes prefixes, changes naming for functions to camelCase. Group functions within most appropriete struct. etc.

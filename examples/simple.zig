@@ -46,7 +46,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     const ctx = try llama.Context.initWithModel(model, cparams);
     defer ctx.deinit();
 
-    var prompt_gen_parms = llama.utils.TemplatedPrompt.templateFromName(args.template) orelse return error.InvalidTemplate;
+    const prompt_gen_parms = llama.utils.TemplatedPrompt.templateFromName(args.template) orelse return error.InvalidTemplate;
     //prompt_parms.setTokensFromModel(model); // behaviour is inconsistent between models, better adapt/specify template directly if needed
     var prompt_gen = llama.utils.TemplatedPrompt.init(alloc, prompt_gen_parms);
     defer prompt_gen.deinit();

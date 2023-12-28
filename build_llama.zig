@@ -27,7 +27,8 @@ pub const Context = struct {
     pub fn init(b: *Builder, op: Options) Context {
         const path_prefix = b.pathJoin(&.{ thisPath(), "/llama.cpp" });
         const zig_version = @import("builtin").zig_version_string;
-        const commit_hash = std.ChildProcess.exec(
+        const exec = if (@hasDecl(std.ChildProcess, "exec")) std.ChildProcess.exec else std.ChildProcess.run; // zig 11 vs nightly compatibility
+        const commit_hash = exec(
             .{ .allocator = b.allocator, .argv = &.{ "git", "rev-parse", "HEAD" } },
         ) catch |err| {
             std.log.err("Cant get git comiit hash! err: {}", .{err});
@@ -171,7 +172,7 @@ pub const Context = struct {
             { // add all c/cpp files from example dir
                 const rpath = b.pathJoin(&.{ ctx.path_prefix, "examples", ex });
                 exe.addIncludePath(.{ .path = rpath });
-                var dir = try std.fs.openIterableDirAbsolute(b.pathFromRoot(rpath), .{});
+                var dir = if (@hasDecl(std.fs, "openIterableDirAbsolute")) try std.fs.openIterableDirAbsolute(b.pathFromRoot(rpath), .{}) else try std.fs.openDirAbsolute(b.pathFromRoot(rpath), .{ .iterate = true }); // zig 11 vs nightly compatibility
                 defer dir.close();
                 var dir_it = dir.iterate();
                 while (try dir_it.next()) |f| switch (f.kind) {
