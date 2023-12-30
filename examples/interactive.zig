@@ -28,12 +28,12 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     slog.info("llama_system_info: {s}", .{llama.printSystemInfo()});
     llama.logSet(llama.utils.scopedLog, null);
 
-    var mparams = llama.modelDefaultParams();
+    var mparams = Model.defaultParams();
     mparams.n_gpu_layers = args.gpu_layers;
     const model = try Model.initFromFile(args.model_path.ptr, mparams);
     defer model.deinit();
 
-    var cparams = llama.contextDefaultParams();
+    var cparams = Context.defaultParams();
     cparams.seed = args.seed orelse 1234;
     const n_ctx_train = model.nCtxTrain();
     const n_ctx = n_ctx_train * 2;

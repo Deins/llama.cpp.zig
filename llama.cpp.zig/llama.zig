@@ -35,8 +35,6 @@ pub const progress_callback = c.llama_progress_callback;
 //pub const Batch = c.llama_batch;
 pub const ModelKvOverrideType = c.llama_model_kv_override_type;
 pub const ModelKvOverride = c.llama_model_kv_override;
-pub const ModelParams = c.llama_model_params;
-pub const ContextParams = c.llama_context_params;
 pub const ModelQuantizeParams = c.llama_model_quantize_params;
 //pub const Grammar = c.llama_grammar;
 pub const Gretpye = c.llama_gretype;
@@ -69,10 +67,10 @@ pub const Backend = opaque {
 };
 
 pub const Model = extern opaque {
-    pub const Params = ModelParams;
-    pub const defaultParams = modelDefaultParams;
+    pub const Params = c.llama_model_params;
+    pub const defaultParams = c.llama_model_default_params;
 
-    pub inline fn initFromFile(path_to_file: CStr, params: ModelParams) !*Model {
+    pub inline fn initFromFile(path_to_file: CStr, params: Params) !*Model {
         const ptr = c.llama_load_model_from_file(path_to_file, params);
         if (ptr == null) return error.FailedToLoadModel;
         return @ptrCast(ptr);
@@ -245,10 +243,10 @@ pub const Model = extern opaque {
 };
 
 pub const Context = opaque {
-    pub const Params = ContextParams;
-    pub const defaultParams = contextDefaultParams;
+    pub const Params = c.llama_context_params;
+    pub const defaultParams = c.llama_context_default_params;
 
-    pub inline fn initWithModel(model: *Model, params: ContextParams) !*Context {
+    pub inline fn initWithModel(model: *Model, params: Params) !*Context {
         const ptr = c.llama_new_context_with_model(@ptrCast(model), params) orelse return error.ContextCreationFailed;
         return @ptrCast(ptr);
     }
@@ -565,10 +563,6 @@ comptime {
 // functions
 
 // Helpers for getting default parameters
-pub const modelDefaultParams = c.llama_model_default_params;
-pub const contextDefaultParams = c.llama_context_default_params;
-pub const modelQuantizeDefaultParams = c.llama_model_quantize_default_params;
-
 pub const timeUs = c.llama_time_us;
 
 pub const maxDevices = c.llama_max_devices;
