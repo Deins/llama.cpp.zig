@@ -1,4 +1,5 @@
 pub const c = @import("llama.h");
+pub const std = @import("std"); // mem.span and other utils
 // utilities
 pub const options = @import("llama_options");
 pub const Prompt = @import("prompt.zig");
@@ -166,6 +167,9 @@ pub const Model = extern opaque {
 
     pub inline fn tokenGetText(self: *const @This(), token: Token) CStr {
         return c.llama_token_get_text(self.cCPtr(), token);
+    }
+    pub inline fn tokenGetTextSlice(self: *const @This(), token: Token) [:0]const u8 {
+        return std.mem.span(tokenGetText(self, token));
     }
     pub inline fn tokenGetScore(self: *const @This(), token: Token) f32 {
         return c.llama_token_get_score(self.cCPtr(), token);

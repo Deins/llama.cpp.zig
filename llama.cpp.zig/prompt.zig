@@ -102,7 +102,7 @@ pub fn shrinkFront(self: *@This(), new_len: usize) void {
     self.tokens.items.shrinkRetainingCapacity(new_len);
 }
 
-pub fn generateOne(self: *@This()) !Token {
+pub fn generateAppendOne(self: *@This()) !Token {
     std.debug.assert(self.embed_idx < self.tokens.items.len);
     defer self.batch.clear();
     while (self.embed_idx < self.tokens.items.len) {
@@ -132,15 +132,11 @@ pub fn generateOne(self: *@This()) !Token {
     return new_token;
 }
 
-pub fn generateOneNullOnEos(self: *@This()) !?Token {
-    const tok = try self.generateOne();
-    return if (tok == self.model.tokenEos()) null else tok;
-}
-
-pub fn generate(self: *@This(), max: usize) ![]Token {
+/// generates and appends untile EOS token or max_tokens number of tokens have been generated
+pub fn generateAppendMany(self: *@This(), max_tokens: usize) ![]Token {
     const start_idx = self.tokens.items.len;
     const eos = self.model.tokenEos();
-    var remain = max;
+    var remain = max_tokens;
     while (remain > 0) : (remain -= 1) {
         if (try self.generateOne() == eos) break;
     }

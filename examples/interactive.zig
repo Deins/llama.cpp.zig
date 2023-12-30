@@ -139,9 +139,11 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
         }
 
         // generate response
+        const eos = model.tokenEos();
         for (0..args.max_len) |_| {
-            const new_text = try detokenizer.detokenize(model, try prompt.generateOneNullOnEos() orelse break);
-            std.debug.print("{s}", .{new_text});
+            const tok = try prompt.generateAppendOne();
+            if (tok == eos) break;
+            std.debug.print("{s}", .{try detokenizer.detokenize(model, tok)});
             detokenizer.clearRetainingCapacity();
         }
         std.debug.print("\n", .{});
