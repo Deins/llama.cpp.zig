@@ -27,6 +27,8 @@ batch: llama.Batch,
 batch_size: usize,
 sampling: Sampling,
 seq_id: SeqId = 0,
+/// any time tokens or indexes are read/modified, this mutex has to be locked
+tokens_mutex: std.Thread.Mutex = .{},
 /// prompt tokens
 tokens: std.ArrayList(llama.Token),
 /// index pointing one past last embeded character
@@ -56,18 +58,33 @@ pub fn deinit(self: *@This()) void {
     self.tokens.deinit();
 }
 
+pub fn clearRetainingCapacity(self: *@This()) void {
+    self.invalidate();
+    self.tokens_mutex.lock();
+    defer self.tokens_mutex.unlock();
+    self.tokens.clearRetainingCapacity();
+}
+
 pub fn appendText(self: *@This(), text: []const u8, special: bool) !void {
+    self.tokens_mutex.lock();
+    defer self.tokens_mutex.unlock();
+
     var t: Tokenizer = .{ .data = self.tokens }; // tokenize directly in our buffer
     try t.tokenize(self.model, text, false, special);
     self.tokens = t.data; // in case it grew, we must reasign it back
 }
 
 pub fn addOneToken(self: *@This(), token: Token) !void {
+    self.tokens_mutex.lock();
+    defer self.tokens_mutex.unlock();
     (try self.tokens.addOne()).* = token;
 }
 
 /// invalidate prompt forcing reprocess everything from beginning
 pub fn invalidate(self: *@This()) void {
+    self.tokens_mutex.lock();
+    defer self.tokens_mutex.unlock();
+
     self.ctx.kvCacheSeqRm(self.seq_id, 0, -1);
     self.accepted_idx = 0;
     self.embed_idx = 0;
@@ -76,6 +93,9 @@ pub fn invalidate(self: *@This()) void {
 
 /// Shrink prompt by removing last characters from back
 pub fn shrink(self: *@This(), new_len: usize) void {
+    self.tokens_mutex.lock();
+    defer self.tokens_mutex.unlock();
+
     if (new_len == self.tokens.items.len) return;
     std.debug.assert(new_len < self.tokens.items.len);
     self.ctx.kvCacheSeqRm(self.seq_id, @intCast(new_len), @intCast(self.tokens.items.len));
@@ -89,6 +109,9 @@ pub fn shrink(self: *@This(), new_len: usize) void {
 
 /// Shrink by removing first characters from front
 pub fn shrinkFront(self: *@This(), new_len: usize) void {
+    self.tokens_mutex.lock();
+    defer self.tokens_mutex.unlock();
+
     if (new_len == self.tokens.items.len) return;
     std.debug.assert(new_len < self.tokens.items.len);
     const tokens = self.tokens.items;
@@ -103,13 +126,22 @@ pub fn shrinkFront(self: *@This(), new_len: usize) void {
 }
 
 pub fn generateAppendOne(self: *@This()) !Token {
-    std.debug.assert(self.embed_idx < self.tokens.items.len);
+    if (self.embed_idx >= self.tokens.items.len) {
+        const bos = self.model.tokenBos();
+        try self.addOneToken(bos);
+        return bos;
+    }
     defer self.batch.clear();
-    while (self.embed_idx < self.tokens.items.len) {
-        const batch_len = @min(self.tokens.items.len - self.embed_idx, self.batch_size);
-        self.batch.clear();
-        for (self.embed_idx..self.embed_idx + batch_len) |i| self.batch.add(self.tokens.items[i], @intCast(i), &.{self.seq_id}, false);
-        self.embed_idx += batch_len;
+
+    {
+        self.tokens_mutex.lock();
+        defer self.tokens_mutex.unlock();
+        while (self.embed_idx < self.tokens.items.len) {
+            const batch_len = @min(self.tokens.items.len - self.embed_idx, self.batch_size);
+            self.batch.clear();
+            for (self.embed_idx..self.embed_idx + batch_len) |i| self.batch.add(self.tokens.items[i], @intCast(i), &.{self.seq_id}, false);
+            self.embed_idx += batch_len;
+        }
     }
 
     // enable llama_decode to output logits only for the last token of the prompt
@@ -122,23 +154,14 @@ pub fn generateAppendOne(self: *@This()) !Token {
         else => return err,
     };
 
+    self.tokens_mutex.lock();
     // update sampler with tokens that might have been added if any
     for (self.accepted_idx..self.tokens.items.len) |ai| self.sampling.accept(self.ctx, self.tokens.items[ai], false);
     self.accepted_idx = self.tokens.items.len;
 
     // sample for next token
     const new_token = try self.sampling.sample(self.ctx, null, self.batch.n_tokens - 1);
+    self.tokens_mutex.unlock();
     try self.addOneToken(new_token);
     return new_token;
-}
-
-/// generates and appends untile EOS token or max_tokens number of tokens have been generated
-pub fn generateAppendMany(self: *@This(), max_tokens: usize) ![]Token {
-    const start_idx = self.tokens.items.len;
-    const eos = self.model.tokenEos();
-    var remain = max_tokens;
-    while (remain > 0) : (remain -= 1) {
-        if (try self.generateOne() == eos) break;
-    }
-    return self.tokens.items[start_idx..];
 }

@@ -115,7 +115,7 @@ pub fn deinit(self: *@This()) void {
 }
 
 pub fn reset(self: *@This()) void {
-    self.curr.clear();
+    self.cur.clearRetainingCapacity();
     self.prev.clear();
 }
 
