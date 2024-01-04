@@ -130,7 +130,7 @@ pub const TemplatedPrompt = struct {
     pub const Params = struct {
         /// prompt template
         template: []const u8 =
-            \\{{bos}}{{role}}
+            \\<|im_start|>{{role}}
             \\{{content}}{{eos}}
             \\
         ,

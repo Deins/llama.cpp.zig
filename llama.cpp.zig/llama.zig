@@ -259,7 +259,7 @@ pub const Context = opaque {
         return @ptrCast(c.llama_get_model(self.cCPtr()));
     }
 
-    pub inline fn nCtx(self: *const @This()) i32 {
+    pub inline fn nCtx(self: *const @This()) u32 {
         return c.llama_n_ctx(self.cCPtr());
     }
 
@@ -380,8 +380,8 @@ pub const Context = opaque {
     }
 
     // Performance information
-    pub inline fn getTimings(self: *const Context) void {
-        c.llama_get_timings(self.cCPtr());
+    pub inline fn getTimings(self: *const Context) Timings {
+        return c.llama_get_timings(self.cCPtr());
     }
 
     pub inline fn printTimings(self: *Context) void {
