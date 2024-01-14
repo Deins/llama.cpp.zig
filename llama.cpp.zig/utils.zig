@@ -336,7 +336,7 @@ pub const TokenRingBuffer = struct {
 
     pub fn shrinkFront(self: *@This(), new_len: usize) void {
         std.debug.assert(new_len <= self.len);
-        self.idx = (self.idx + new_len - self.len) % self.data.len;
+        self.idx = (self.idx + self.len - new_len) % self.data.len;
         self.len = new_len;
     }
 
