@@ -279,8 +279,16 @@ pub const Context = opaque {
     }
 
     /// Clear the KV cache
-    pub inline fn kvCacheClear(self: *const @This()) void {
-        return c.llama_kv_cache_clear(self.cCPtr());
+    pub inline fn kvCacheClear(self: *@This()) void {
+        return c.llama_kv_cache_clear(self.cPtr());
+    }
+
+    /// Integer division of the positions by factor of `d > 1`
+    /// If the KV cache is RoPEd, the KV data is updated accordingly
+    /// p0 < 0 : [0,  p1]
+    /// p1 < 0 : [p0, inf)
+    pub inline fn kvCacheSeqDiv(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos, d: c_int) void {
+        c.llama_kv_cache_seq_div(self.cPtr(), seq_id, p0, p1, d);
     }
 
     /// Removes all tokens that belong to the specified sequence and have positions in [p0, p1)

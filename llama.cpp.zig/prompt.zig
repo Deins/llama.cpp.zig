@@ -12,11 +12,13 @@ const SeqId = llama.SeqId;
 const Prompt = @This();
 
 /// what extenson method use to extend context when its full
-pub const ContextExtensionStrategy = union(enum) {
+/// note: unless specified otherwise these impact only kv cache and don't modify prompt tokens
+pub const ContextExtensionStrategy = union(enum(c_int)) {
     /// return error when context is full
     none: void,
     /// similar to shifting, but doesn't keep first n characters. Importantly keeps tokens in sync with kv cache.
     sliding_window: void,
+    /// TODO: works somehow, but needs more testing.
     /// infinite text generation via context shifting
     /// - take the n_keep first tokens from the original prompt
     /// - take half of the last (n_ctx - n_keep) tokens and recompute the logits in batches
@@ -25,8 +27,15 @@ pub const ContextExtensionStrategy = union(enum) {
         /// NOTE: must include (+1) bos token if one is used
         keep_first_n: usize = 0,
     },
+    /// TODO: not working properly
     /// Self extend method: https://github.com/ggerganov/llama.cpp/discussions/4785
-    self_extend: struct {},
+    self_extend: struct {
+        /// group-attention state
+        /// number of grouped KV tokens so far
+        i: i32 = 0,
+        n: i32 = 1,
+        w: i32 = 512,
+    },
 };
 
 /// utility to manage promt and keep with sync with kv cache & sampler for most basic use cases
@@ -177,7 +186,28 @@ pub fn ensureContextUnusedCapacty(self: *@This(), addtonal_count: usize) usize {
             // regenerate logits for last token
             self.embed_idx -|= 1;
         },
-        .self_extend => @panic("TODO: implement"),
+        .self_extend => |*cfg| {
+            while (self.ctx_used >= cfg.i + cfg.w) {
+                const ib = @divTrunc(cfg.n * cfg.i, cfg.w);
+                const bd = @divTrunc(cfg.w, cfg.n) * (cfg.n - 1);
+                const dd = @divTrunc(cfg.w, cfg.n) - ib * bd - cfg.w;
+
+                // LOG("\n");
+                // LOG("shift: [%6d, %6d] + %6d -> [%6d, %6d]\n", ga_i, n_past, ib*bd, ga_i + ib*bd, n_past + ib*bd);
+                // LOG("div:   [%6d, %6d] / %6d -> [%6d, %6d]\n", ga_i + ib*bd, ga_i + ib*bd + ga_w, ga_n, (ga_i + ib*bd)/ga_n, (ga_i + ib*bd + ga_w)/ga_n);
+                // LOG("shift: [%6d, %6d] + %6d -> [%6d, %6d]\n", ga_i + ib*bd + ga_w, n_past + ib*bd, dd, ga_i + ib*bd + ga_w + dd, n_past + ib*bd + dd);
+
+                self.ctx.kvCacheSeqShift(self.seq_id, cfg.i, @intCast(self.ctx_used), ib * bd);
+                self.ctx.kvCacheSeqDiv(self.seq_id, cfg.i + ib * bd, cfg.i + ib * bd + cfg.w, cfg.n);
+                self.ctx.kvCacheSeqShift(self.seq_id, cfg.i + ib * bd + cfg.w, @as(i32, @intCast(self.ctx_used)) + ib * bd, dd);
+
+                self.ctx_used -= @intCast(bd);
+                self.embed_idx -|= 1; // regenerate logits for last char
+
+                cfg.i += @divTrunc(cfg.w, cfg.n);
+                //LOG("\nn_past_old = %d, n_past = %d, ga_i = %d\n\n", n_past + bd, n_past, ga_i);
+            }
+        },
     }
     return self.contextAvailable();
 }
@@ -200,6 +230,7 @@ pub fn generateAppendOne(self: *@This()) !Token {
             const add_n = self.tokens.items.len - self.embed_idx;
             const ctx_space = self.ensureContextUnusedCapacty(add_n);
             const batch_len = @min(@min(ctx_space, add_n), self.batch_size);
+            if (batch_len == 0) return error.NoKvSlotWarning;
             self.batch.clear();
 
             self.tokens_mutex.lock();
