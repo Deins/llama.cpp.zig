@@ -30,7 +30,7 @@ pub const Params = struct {
     mirostat_tau: f32 = 5.00, // target entropy
     mirostat_eta: f32 = 0.10, // learning rate
     penalize_nl: bool = true, // consider newlines as a repeatable token
-    samplers_sequence: []const SamplerType = &.{ .top_k, .tail_free, .typical_p, .top_p, .min_p, .temp }, // note: if allocated, user is responsible to
+    samplers_sequence: []const SamplerType = &.{ .top_k, .tail_free, .typical_p, .top_p, .min_p, .temp }, // note: if allocated, user is responsible to free its contents
 
     grammar: ?*llama.Grammar = null,
 
