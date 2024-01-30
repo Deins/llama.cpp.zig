@@ -108,6 +108,19 @@ pub const Context = struct {
         tc.defineCMacro("NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
         return tc.addModule("ggml.h");
     }
+    
+    /// zig module with translated headers
+    pub fn moduleLlamaCppBindings(ctx: *Context) *Module {
+        const tc = ctx.b.addTranslateC(.{
+            .source_file = .{ .path = "cpp_bindings/bindings.h", },
+            .target = ctx.options.target,
+            .optimize = ctx.options.optimize,
+        });
+        if (ctx.options.shared) tc.defineCMacro("LLAMA_SHARED", null);
+        tc.defineCMacro("NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
+        tc.addIncludeDir("llama.cpp");
+        return tc.addModule("lamma_cpp_bindings.h");
+    }
 
     pub fn addBuildInfo(ctx: *Context, compile: *CompileStep) void {
         compile.addObject(ctx.build_info);
@@ -149,6 +162,10 @@ pub const Context = struct {
         // kind of optional depending on context, see if worth spliting in another lib
         compile.addCSourceFile(.{ .file = ctx.path("common/train.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.path("common/console.cpp"), .flags = ctx.flags() });
+        // c++ bindings
+        compile.addIncludePath(ctx.path("common"));
+        compile.addIncludePath(.{ .path = "cpp_bindings", });
+        compile.addCSourceFile(.{ .file = .{ .path = ctx.b.pathJoin(&.{"cpp_bindings", "grammar.cpp"}) }, .flags = ctx.flags() });
     }
 
     pub fn samples(ctx: *Context, install: bool) !void {

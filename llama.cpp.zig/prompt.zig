@@ -265,6 +265,7 @@ pub fn generateAppendOne(self: *@This()) !Token {
     const new_token = try self.sampling.sample(self.ctx, null, self.batch.n_tokens - 1);
     self.tokens_mutex.unlock();
     try self.addOneToken(new_token);
+    if (self.sampling.grammar != null) self.sampling.accept(self.ctx, new_token, true);
     return new_token;
 }
 

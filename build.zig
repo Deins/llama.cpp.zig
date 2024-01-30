@@ -32,6 +32,8 @@ pub const Context = struct {
     llama_h_module: *Module,
     /// ggml.h  translated header file module, mostly for internal use
     ggml_h_module: *Module,
+    /// cpp_bindings.h translated header file module, mostly for internal use
+    llama_cpp_bindings_h_module: *Module,
 
     pub fn init(b: *std.Build, options: Options) Self {
         var zop = b.addOptions();
@@ -47,6 +49,7 @@ pub const Context = struct {
 
         const llama_h_module = llama_cpp.moduleLlama();
         const ggml_h_module = llama_cpp.moduleGgml();
+        const llama_cpp_bindings_h_module = llama_cpp.moduleLlamaCppBindings();
         const deps: []const std.Build.ModuleDependency = &.{
             .{
                 .name = "llama.h",
@@ -55,6 +58,10 @@ pub const Context = struct {
             .{
                 .name = "ggml.h",
                 .module = ggml_h_module,
+            },
+            .{
+                .name = "llama_cpp_bindings.h",
+                .module = llama_cpp_bindings_h_module,
             },
             .{
                 .name = "llama_options",
@@ -73,6 +80,7 @@ pub const Context = struct {
             .module = mod,
             .llama_h_module = llama_h_module,
             .ggml_h_module = ggml_h_module,
+            .llama_cpp_bindings_h_module = llama_cpp_bindings_h_module
         };
     }
 
