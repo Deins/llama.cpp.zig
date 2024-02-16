@@ -25,12 +25,14 @@ pub const VocabType = c.llama_vocab_type;
 //pub const TokenType = c.llama_token_type;
 pub const FType = c.llama_ftype;
 pub const RopeScalingType = c.llama_rope_scaling_type;
+pub const poolingType = c.llama_pooling_type;
+pub const splitMode = c.llama_split_mode;
 
 pub const TokenData = c.llama_token_data;
 pub const TokenDataArray = c.llama_token_data_array;
 pub const LlamaContext = c.llama_context;
 
-pub const progress_callback = c.llama_progress_callback;
+pub const ProgressCallback = c.llama_progress_callback;
 
 //pub const Batch = c.llama_batch;
 pub const ModelKvOverrideType = c.llama_model_kv_override_type;
@@ -57,11 +59,15 @@ pub const Backend = opaque {
     // Initialize the llama + ggml backend
     // If numa is true, use NUMA optimizations
     // Call once at the start of the program
-    pub fn init(numa: bool) void {
-        c.llama_backend_init(numa);
+    pub inline fn init() void {
+        c.llama_backend_init();
     }
 
-    pub fn deinit() void {
+    pub inline fn initNuma(numa: c.ggml_numa_strategy) void {
+        c.llama_numa_init(numa);
+    }
+
+    pub inline fn deinit() void {
         c.llama_backend_free();
     }
 };
@@ -105,7 +111,7 @@ pub const Model = extern opaque {
     // Get metadata value as a string by key name
     pub inline fn metaValStr(self: *const @This(), key: CStr, out_buff: []u8) ?[]u8 {
         const idx = c.llama_model_meta_val_str(self.cCPtr(), key, out_buff.ptr, out_buff.len);
-        return if (idx >= 0) out_buff[0..idx] else null;
+        return if (idx >= 0) out_buff[0..@intCast(idx)] else null;
     }
 
     // Get the number of metadata key/value pairs
@@ -128,7 +134,7 @@ pub const Model = extern opaque {
     // Get a string describing the model type
     pub inline fn desc(self: *const @This(), out_buff: []u8) []u8 {
         const idx: usize = @intCast(c.llama_model_desc(self.cCPtr(), out_buff.ptr, out_buff.len));
-        return if (idx >= 0) out_buff[0..idx] else null;
+        return if (idx >= 0) out_buff[0..@intCast(idx)] else null;
     }
 
     // Returns the total size of all the tensors in the model in bytes
@@ -261,6 +267,10 @@ pub const Context = opaque {
 
     pub inline fn nCtx(self: *const @This()) u32 {
         return c.llama_n_ctx(self.cCPtr());
+    }
+
+    pub inline fn nBatch(self: *const @This()) u32 {
+        return c.llama_n_batch(self.cCPtr());
     }
 
     //
@@ -494,6 +504,12 @@ pub const Context = opaque {
     /// @details Accepts the sampled token into the grammar
     pub inline fn grammarAcceptToken(self: *@This(), grammar: *Grammar, tok: Token) void {
         c.llama_grammar_accept_token(self.cPtr(), @ptrCast(grammar), tok);
+    }
+
+    // Get the embeddings for the ith sequence
+    // llama_get_embeddings(ctx) + i*n_embd
+    pub inline fn getEmbeddingsIth(self: *Context, i: i32) [*]f32 {
+        return c.llama_get_embeddings_ith(self.cPtr(), i);
     }
 
     //
