@@ -20,7 +20,7 @@ pub const Args = struct {
 };
 
 pub fn run(alloc: std.mem.Allocator, args: Args) !void {
-    llama.Backend.init(false);
+    llama.Backend.init();
     defer llama.Backend.deinit();
     slog.info("llama_system_info: {s}", .{llama.printSystemInfo()});
     llama.logSet(llama.utils.scopedLog, null);
