@@ -1,11 +1,12 @@
 // this is a rewrite of original sampling.cpp as it had no c api
 // NOTE: changes from cpp version:
-// grammar is not passed as string to be parsed, instead parsed llama_grammar* params, as at time of writing grammar_parser has no C api.
 // implements prev token as ring buffer
 // reimplements llama_sample_repetition_penalties to support ring buffer
 
 const std = @import("std");
 const llama = @import("llama.zig");
+
+const cpp_bindings = @import("llama_cpp_bindings.h");
 
 const Token = llama.Token;
 const TokenData = llama.TokenData;
@@ -33,6 +34,7 @@ pub const Params = struct {
     samplers_sequence: []const SamplerType = &.{ .top_k, .tail_free, .typical_p, .top_p, .min_p, .temp }, // note: if allocated, user is responsible to free its contents
 
     grammar: ?*llama.Grammar = null,
+    grammar_text: ?[:0]const u8 = null, // inits grammar from text if grammar is empty
 
     // Classifier-Free Guidance
     // https://arxiv.org/abs/2306.17806
@@ -93,6 +95,7 @@ pub const SamplerType = enum {
 alloc: std.mem.Allocator,
 // parameters that will be used for sampling
 params: Params,
+grammar: ?*llama.Grammar = null,
 
 // mirostat SamplerType state
 mirostat_mu: f32 = 0,
@@ -106,7 +109,15 @@ pub fn init(alloc: std.mem.Allocator, params: Params) !@This() {
         .params = params,
         .prev = .{ .data = try alloc.alloc(Token, @intCast(params.n_prev)) },
         .cur = .{},
+        .grammar = getGrammarFromParams(params)
     };
+}
+
+fn getGrammarFromParams(params: Params) ?*llama.Grammar {
+    if (params.grammar == null and params.grammar_text != null) {
+        return @ptrCast(cpp_bindings.parse_grammar_from_text(params.grammar_text.?));
+    }
+    return params.grammar;
 }
 
 pub fn deinit(self: *@This()) void {
@@ -202,7 +213,7 @@ pub fn sample(self: *@This(), ctx_main: *llama.Context, ctx_cfg: ?*llama.Context
         }
     }
 
-    if (self.params.grammar) |g| ctx_main.sampleGrammar(&cur_p, g);
+    if (self.grammar) |g| ctx_main.sampleGrammar(&cur_p, g);
 
     if (temp < 0.0) {
         // greedy sampling, with probs
@@ -234,8 +245,8 @@ pub fn sample(self: *@This(), ctx_main: *llama.Context, ctx_cfg: ?*llama.Context
 pub fn accept(self: *@This(), ctx_main: *llama.Context, id: Token, apply_grammar: bool) void {
     self.prev.appendEraseFifo(id);
 
-    if (apply_grammar and self.params.grammar != null)
-        ctx_main.grammarAcceptToken(@ptrCast(self.params.grammar.?), id);
+    if (apply_grammar and self.grammar != null)
+        ctx_main.grammarAcceptToken(@ptrCast(self.grammar.?), id);
 }
 
 // no reasons to expose this function in header

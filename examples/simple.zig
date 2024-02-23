@@ -8,6 +8,7 @@ const Context = llama.Context;
 const Token = llama.Token;
 const TokenData = llama.TokenData;
 const TokenDataArray = llama.TokenDataArray;
+const Sampling = llama.Sampling;
 
 pub const Args = struct {
     model_path: [:0]const u8 = "models/dolphin-2.2.1-mistral-7b.Q3_K_M.gguf",
@@ -17,6 +18,7 @@ pub const Args = struct {
     threads: ?usize = null,
     threads_batch: ?usize = null,
     gpu_layers: i32 = 0,
+    grammar_file_path: ?[]const u8 = null
 };
 
 pub fn run(alloc: std.mem.Allocator, args: Args) !void {
@@ -44,10 +46,27 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     const ctx = try llama.Context.initWithModel(model, cparams);
     defer ctx.deinit();
 
+    var sampling_params: Sampling.Params = .{};
+    var grammar_text_len: u64 = 0;
+    if (args.grammar_file_path) |file_path| {
+        if (std.fs.cwd().readFileAlloc(alloc, file_path, std.math.maxInt(usize))) |grammar_text| {
+            var grammar_text_list = std.ArrayList(u8).fromOwnedSlice(alloc, grammar_text);
+            sampling_params.grammar_text = try grammar_text_list.toOwnedSliceSentinel(0);
+            grammar_text_len = grammar_text_list.items.len;
+        } else |err| switch (err) {
+            error.FileNotFound => @panic("grammar file not found"),
+            else => return err
+        }
+    }
+    defer {
+        if (sampling_params.grammar_text) |text| alloc.free(text);
+    }
+
     var prompt = try llama.Prompt.init(alloc, .{
         .model = model,
         .ctx = ctx,
         .batch_size = 512,
+        .sampling_params = sampling_params
     });
     defer prompt.deinit();
     try prompt.appendText(args.prompt orelse @panic("--prompt argument is required"), true);
