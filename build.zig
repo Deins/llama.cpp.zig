@@ -15,7 +15,6 @@ pub const llama_cpp_path_prefix = "llama.cpp/"; // point to where llama.cpp root
 pub const Options = struct {
     target: Target,
     optimize: Mode,
-    opencl: ?clblast.OpenCL = null,
     clblast: bool = false,
 };
 
@@ -35,14 +34,11 @@ pub const Context = struct {
 
     pub fn init(b: *std.Build, options: Options) Self {
         var zop = b.addOptions();
-        zop.addOption(bool, "opencl", options.opencl != null);
 
         var llama_cpp = llama.Context.init(b, .{
             .target = options.target,
             .optimize = options.optimize,
             .shared = false,
-            .opencl = options.opencl,
-            .clblast = options.clblast,
         });
 
         const llama_h_module = llama_cpp.moduleLlama();
@@ -101,30 +97,20 @@ pub const Context = struct {
 };
 
 pub fn build(b: *std.Build) !void {
-    const use_clblast = b.option(bool, "clblast", "Use clblast acceleration") orelse false;
-    const opencl_includes = b.option([]const u8, "opencl_includes", "Path to OpenCL headers");
-    const opencl_libs = b.option([]const u8, "opencl_libs", "Path to OpenCL libs");
     const install_cpp_samples = b.option(bool, "cpp_samples", "Install llama.cpp samples") orelse false;
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const want_opencl = use_clblast;
-    const opencl_maybe = if (!want_opencl) null else if (opencl_includes != null or opencl_libs != null) llama.clblast.OpenCL{ .include_path = (opencl_includes orelse ""), .lib_path = (opencl_libs orelse "") } else llama.clblast.OpenCL.fromOCL(b, target);
-    if (use_clblast and opencl_maybe == null) @panic("OpenCL not found. Please specify include or libs manually if its installed!");
-
     var llama_zig = Context.init(b, .{
         .target = target,
         .optimize = optimize,
-        .opencl = opencl_maybe,
-        .clblast = use_clblast,
     });
 
     llama_zig.llama.samples(install_cpp_samples) catch |err| std.log.err("Can't build CPP samples, error: {}", .{err});
 
     llama_zig.sample("examples", "simple");
-    llama_zig.sample("examples", "interactive");
-    if (opencl_maybe != null) llama_zig.sample("examples", "opencl_devices");
+    // llama_zig.sample("examples", "interactive");
 
     { // tests
         const main_tests = b.addTest(.{

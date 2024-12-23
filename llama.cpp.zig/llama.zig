@@ -2,13 +2,9 @@ pub const c = @import("llama.h");
 pub const std = @import("std"); // mem.span and other utils
 // utilities
 pub const options = @import("llama_options");
-pub const Prompt = @import("prompt.zig");
-pub const Sampling = @import("sampling.zig");
 pub const utils = @import("utils.zig");
 pub const Tokenizer = utils.Tokenizer;
 pub const Detokenizer = utils.Detokenizer;
-
-pub const opencl_utils = if (options.opencl) @import("opencl_utils.zig");
 
 //
 //  Actual llama.h bindings
@@ -41,18 +37,101 @@ pub const ModelQuantizeParams = c.llama_model_quantize_params;
 //pub const Grammar = c.llama_grammar;
 pub const Gretpye = c.llama_gretype;
 pub const GrammarElement = c.llama_grammar_element;
-pub const Timings = c.llama_timings;
+pub const PerfContextData = c.llama_perf_context_data;
+
+pub const chatApplyTemplate = c.llama_chat_apply_template;
+pub const chatBuiltinTemplates = c.llama_chat_builtin_templates;
+
+pub const SamplerContext = c.llama_sampler_context_t;
+pub const SamplerChainParams = c.llama_sampler_chain_params;
+
+pub const SamplerChainPtr = *align(@alignOf(c.llama_sampler)) SamplerChain;
+pub const SamplerChain = extern opaque {
+    pub fn init(p: SamplerChainParams) SamplerChainPtr {
+        return @ptrCast(c.llama_sampler_chain_init(p));
+    }
+    pub fn initDefault() SamplerChainPtr {
+        return init(c.llama_sampler_chain_default_params());
+    }
+
+    pub fn initGreedy() SamplerChainPtr {
+        return @ptrCast(c.llama_sampler_init_greedy());
+    }
+    // TODO: other samplers
+
+    pub fn deinit(self: SamplerChainPtr) void {
+        c.llama_sampler_free(@ptrCast(self));
+    }
+
+    pub fn name(self: SamplerChainPtr) CStr {
+        return c.llama_sampler_name(@ptrCast(self));
+    }
+
+    pub fn accept(self: SamplerChainPtr, tok: Token) void {
+        c.llama_sampler_accept(@ptrCast(self), tok);
+    }
+
+    pub fn apply(self: SamplerChainPtr, tok_data: *TokenDataArray) void {
+        c.llama_sampler_apply(@ptrCast(self), tok_data);
+    }
+
+    pub fn reset(self: SamplerChainPtr) void {
+        c.llama_sampler_reset(@ptrCast(self));
+    }
+
+    pub fn clone(self: SamplerChainPtr) SamplerChain {
+        return @ptrCast(c.llama_sampler_clone(@ptrCast(self)));
+    }
+
+    pub fn add(self: SamplerChainPtr, other: SamplerChainPtr) void {
+        return c.llama_sampler_chain_add(@ptrCast(self), @ptrCast(other));
+    }
+
+    pub fn get(self: SamplerChainPtr, i: i32) void {
+        return c.llama_sampler_get(@ptrCast(self), i);
+    }
+
+    // llama_sampler_chain_n
+    pub fn n(self: SamplerChainPtr) i32 {
+        return c.llama_sampler_chain_n(@ptrCast(self));
+    }
+
+    pub fn remove(self: SamplerChainPtr, i: i32) SamplerChain {
+        return @ptrCast(c.llama_sampler_chain_remove(@ptrCast(self), i));
+    }
+
+    pub fn sample(self: SamplerChainPtr, ctx: *Context, idx: i32) Token {
+        return c.llama_sampler_sample(@ptrCast(self), @ptrCast(ctx), idx);
+    }
+
+    // perf
+    pub inline fn perf(self: SamplerChainPtr) PerfContextData {
+        return c.llama_perf_sampler(@ptrCast(self));
+    }
+
+    pub inline fn perfPrint(self: SamplerChainPtr) void {
+        c.llama_perf_sampler_print(@ptrCast(self));
+    }
+
+    pub inline fn perfReset(self: SamplerChainPtr) void {
+        c.llama_perf_sampler_reset(@ptrCast(self));
+    }
+};
 
 // zigified opaque, structs, enums
 
-pub const TokenType = enum(c_int) {
-    LLAMA_TOKEN_TYPE_UNDEFINED = 0,
-    LLAMA_TOKEN_TYPE_NORMAL = 1,
-    LLAMA_TOKEN_TYPE_UNKNOWN = 2,
-    LLAMA_TOKEN_TYPE_CONTROL = 3,
-    LLAMA_TOKEN_TYPE_USER_DEFINED = 4,
-    LLAMA_TOKEN_TYPE_UNUSED = 5,
-    LLAMA_TOKEN_TYPE_BYTE = 6,
+pub const TokenAttr = enum(c_int) {
+    LLAMA_TOKEN_ATTR_UNDEFINED = 0,
+    LLAMA_TOKEN_ATTR_UNKNOWN = 1 << 0,
+    LLAMA_TOKEN_ATTR_UNUSED = 1 << 1,
+    LLAMA_TOKEN_ATTR_NORMAL = 1 << 2,
+    LLAMA_TOKEN_ATTR_CONTROL = 1 << 3, // SPECIAL?
+    LLAMA_TOKEN_ATTR_USER_DEFINED = 1 << 4,
+    LLAMA_TOKEN_ATTR_BYTE = 1 << 5,
+    LLAMA_TOKEN_ATTR_NORMALIZED = 1 << 6,
+    LLAMA_TOKEN_ATTR_LSTRIP = 1 << 7,
+    LLAMA_TOKEN_ATTR_RSTRIP = 1 << 8,
+    LLAMA_TOKEN_ATTR_SINGLE_WORD = 1 << 9,
 };
 
 pub const Backend = opaque {
@@ -178,8 +257,8 @@ pub const Model = extern opaque {
     pub inline fn tokenGetScore(self: *const @This(), token: Token) f32 {
         return c.llama_token_get_score(self.cCPtr(), token);
     }
-    pub inline fn tokenGetType(self: *const @This(), token: Token) TokenType {
-        return @enumFromInt(c.llama_token_get_type(self.cCPtr(), token));
+    pub inline fn tokenGetAttr(self: *const @This(), token: Token) TokenAttr {
+        return @enumFromInt(c.llama_token_get_attr(self.cCPtr(), token));
     }
 
     // Special tokens
@@ -240,7 +319,8 @@ pub const Model = extern opaque {
     // Does not write null terminator to the buffer.
     // User code is responsible to remove the leading whitespace of the first non-BOS token when decoding multiple tokens.
     pub inline fn tokenToPiece(self: *const @This(), token: Token, out_text: []u8) i32 {
-        return c.llama_token_to_piece(self.cCPtr(), token, out_text.ptr, @intCast(out_text.len));
+        const special = true;
+        return c.llama_token_to_piece(self.cCPtr(), token, out_text.ptr, @intCast(out_text.len), 0, special);
     }
 
     pub inline fn cCPtr(self: *const Model) *const c.llama_model {
@@ -305,7 +385,7 @@ pub const Context = opaque {
     /// seq_id < 0 : match any sequence
     /// p0 < 0     : [0,  p1]
     /// p1 < 0     : [p0, inf)
-    pub inline fn kvCacheSeqRm(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos) void {
+    pub inline fn kvCacheSeqRm(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos) bool {
         return c.llama_kv_cache_seq_rm(self.cPtr(), seq_id, p0, p1);
     }
 
@@ -320,14 +400,6 @@ pub const Context = opaque {
     /// Removes all tokens that do not belong to the specified sequence
     pub inline fn kvCacheSeqKeep(self: *@This(), seq_id: SeqId) void {
         return c.llama_kv_cache_seq_keep(self.cPtr(), seq_id);
-    }
-
-    /// Adds relative position "delta" to all tokens that belong to the specified sequence and have positions in [p0, p1)
-    /// If the KV cache is RoPEd, the KV data is updated accordingly
-    /// p0 < 0 : [0,  p1]
-    /// p1 < 0 : [p0, inf)
-    pub inline fn kvCacheSeqShift(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos, delta: Pos) void {
-        return c.llama_kv_cache_seq_shift(self.cPtr(), seq_id, p0, p1, delta);
     }
 
     //
@@ -397,18 +469,6 @@ pub const Context = opaque {
         return c.llama_get_embeddings(self.cPtr());
     }
 
-    // Performance information
-    pub inline fn getTimings(self: *const Context) Timings {
-        return c.llama_get_timings(self.cCPtr());
-    }
-
-    pub inline fn printTimings(self: *Context) void {
-        c.llama_print_timings(self.cPtr());
-    }
-    pub inline fn resetTimings(self: *Context) void {
-        c.llama_reset_timings(self.cPtr());
-    }
-
     //
     // Sampling functions
     //
@@ -428,9 +488,9 @@ pub const Context = opaque {
     /// @param candidates A vector of `llama_token_data` containing the candidate tokens, the logits must be directly extracted from the original generation context without being sorted.
     /// @params guidance_ctx A separate context from the same model. Other than a negative prompt at the beginning, it should have all generated and user input tokens copied from the main context.
     /// @params scale Guidance strength. 1.0f means no guidance. Higher values mean stronger guidance.
-    pub inline fn sampleClassifierFreeGuidance(self: *@This(), candidates: *TokenDataArray, guidance_ctx: *Context, scale: f32) void {
-        c.llama_sample_classifier_free_guidance(self.cPtr(), candidates, guidance_ctx.cPtr(), scale);
-    }
+    // pub inline fn sampleClassifierFreeGuidance(self: *@This(), candidates: *TokenDataArray, guidance_ctx: *Context, scale: f32) void {
+    //     c.llama_sample_classifier_free_guidance(self.cPtr(), candidates, guidance_ctx.cPtr(), scale);
+    // }
 
     /// @details Sorts candidate tokens by their logits in descending order and calculate probabilities based on logits.
     pub inline fn sampleSoftmax(self: *@This(), candidates: *TokenDataArray) void {
@@ -520,6 +580,18 @@ pub const Context = opaque {
 
     pub inline fn cPtr(self: *Context) *c.llama_context {
         return @ptrCast(self);
+    }
+
+    pub inline fn perf(self: *Context) PerfContextData {
+        return c.llama_perf_context(@ptrCast(self));
+    }
+
+    pub inline fn perfPrint(self: *Context) void {
+        c.llama_perf_context_print(@ptrCast(self));
+    }
+
+    pub inline fn perfReset(self: *Context) void {
+        c.llama_perf_context_reset(@ptrCast(self));
     }
 };
 
@@ -630,21 +702,12 @@ pub const Batch = extern struct {
     seq_id: [*][*]SeqId,
     logits: [*]bool,
 
-    // NOTE: helpers for smooth API transition - can be deprecated in the future
-    //       for future-proof code, use the above fields instead and ignore everything below
-    //
-    // pos[i] = all_pos_0 + i*all_pos_1
-    //
-    all_pos_0: Pos, // used if pos == NULL
-    llama_pos: Pos, // used if pos == NULL
-    all_seq_id: SeqId, // used if seq_id == NULL
-
     // Return batch for single sequence of tokens starting at pos_0
     //
     // NOTE: this is a helper function to facilitate transition to the new batch API - avoid using it
     //
-    pub fn initOne(tokens: []Token, pos_0: Pos, seq_id: SeqId) Batch {
-        return @bitCast(c.llama_batch_get_one(tokens.ptr, @intCast(tokens.len), pos_0, seq_id));
+    pub fn initOne(tokens: []Token) Batch {
+        return @bitCast(c.llama_batch_get_one(tokens.ptr, @intCast(tokens.len)));
     }
 
     /// Allocates a batch of tokens on the heap that can hold a maximum of n_tokens
@@ -745,11 +808,15 @@ pub const printSystemInfo = c.llama_print_system_info;
 // Set callback for all future logging events.
 // If this is not called, or NULL is supplied, everything is output on stderr.
 pub const LogLevel = enum(c_int) {
-    Error = 2, // GGML_LOG_LEVEL_ERROR = 2,
-    Warn = 3, // GGML_LOG_LEVEL_WARN = 3,
-    Info = 4, // GGML_LOG_LEVEL_INFO = 4
+    NONE = 0,
+    DEBUG = 1,
+    INFO = 2,
+    WARN = 3,
+    ERROR = 4,
+    CONT = 5, // continue previous log
 };
 pub const LogCallback = *const fn (level: LogLevel, text: CStr, user_data: ?*anyopaque) callconv(.C) void;
+
 pub fn logSet(cb: ?LogCallback, user_data: ?*anyopaque) void {
     c.llama_log_set(@ptrCast(cb), user_data);
 }

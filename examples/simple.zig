@@ -12,7 +12,7 @@ const TokenDataArray = llama.TokenDataArray;
 pub const Args = struct {
     model_path: [:0]const u8 = "models/dolphin-2.2.1-mistral-7b.Q3_K_M.gguf",
     prompt: ?[]const u8 = null,
-    max_len: usize = 1024, // generate until eos, or this many characters are in prompt
+    max_gen: usize = 1024, // generate until eos, or this many characters are generated
     seed: ?u32 = null,
     threads: ?usize = null,
     threads_batch: ?usize = null,
@@ -31,7 +31,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     defer model.deinit();
 
     var cparams = Context.defaultParams();
-    cparams.seed = args.seed orelse 1234;
+    //cparams.seed = args.seed orelse 1234;
     const n_ctx_train = model.nCtxTrain();
     const n_ctx = n_ctx_train;
     cparams.n_ctx = @intCast(n_ctx_train);
@@ -44,42 +44,43 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     const ctx = try llama.Context.initWithModel(model, cparams);
     defer ctx.deinit();
 
-    var prompt = try llama.Prompt.init(alloc, .{
-        .model = model,
-        .ctx = ctx,
-        .batch_size = 512,
-    });
-    defer prompt.deinit();
-    try prompt.appendText(args.prompt orelse @panic("--prompt argument is required"), true);
-    const initial_prompt_len = prompt.tokens.items.len;
+    var sampler = llama.SamplerChain.init(.{ .no_perf = false });
+    defer sampler.deinit();
+    sampler.add(llama.SamplerChain.initGreedy());
+
+    // var prompt = try llama.Prompt.init(alloc, .{
+    //     .model = model,
+    //     .ctx = ctx,
+    //     .sampler = sampler,
+    //     .batch_size = 512,
+    // });
+    // defer prompt.deinit();
+    // try prompt.appendText(args.prompt orelse @panic("--prompt argument is required"), true);
+    // const initial_prompt_len = prompt.tokens.items.len;
+
+    var tokenizer = llama.Tokenizer.init(alloc);
+    defer tokenizer.deinit();
+    try tokenizer.tokenize(model, args.prompt orelse "My name is ", false, true);
 
     var detokenizer = llama.Detokenizer.init(alloc);
     defer detokenizer.deinit();
-    for (prompt.tokens.items) |tok| _ = try detokenizer.detokenize(model, tok);
+    for (tokenizer.getTokens()) |tok| _ = try detokenizer.detokenize(model, tok);
     std.debug.print("PROMPT:\n{s}", .{detokenizer.getText()});
     detokenizer.clearRetainingCapacity();
 
-    // generate response
-    const token_eos = model.tokenEos();
-    for (0..args.max_len) |_| {
-        const token = try prompt.generateAppendOne();
-        if (token == token_eos) break;
-        std.debug.print("{s}", .{try detokenizer.detokenize(model, token)});
-        detokenizer.clearRetainingCapacity();
-    }
+    const batch = llama.Batch.initOne(tokenizer.getTokens());
 
-    // Generate alternate response
-    prompt.shrink(initial_prompt_len);
-    std.debug.print("\n\nAlternative generated reponse:\n", .{});
-    for (0..args.max_len) |_| {
-        const token = try prompt.generateAppendOne();
-        if (token == token_eos) break;
+    // generate response
+    for (0..args.max_gen) |_| {
+        try batch.decode(ctx);
+        const token = sampler.sample(ctx, -1);
+        if (llama.c.llama_token_is_eog(@ptrCast(model), token)) break;
         std.debug.print("{s}", .{try detokenizer.detokenize(model, token)});
         detokenizer.clearRetainingCapacity();
     }
     std.debug.print("\n", .{});
 
-    ctx.printTimings();
+    ctx.perfPrint();
 }
 
 pub fn main() !void {

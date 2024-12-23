@@ -9,12 +9,5 @@
         "llama.cpp/",
         "llama.cpp/common",
     },
-    .dependencies = .{
-        .clblast = .{
-            .lazy = true,
-            //.path = "CLBlast.build.zig",
-            .url = "git+https://github.com/Deins/CLBlast.build.zig/?ref=HEAD#f625908b45de077604951084b9e8d989cedcf2d2",
-            .hash = "1220bb9caa813a519a5bf9f7facbb514c3772559adc6149d0bf4901bc1634c11d86c",
-        },
-    },
+    .dependencies = .{},
 }

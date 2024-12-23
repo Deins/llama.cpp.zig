@@ -5,14 +5,11 @@ const Mode = std.builtin.Mode;
 const CompileStep = std.Build.Step.Compile;
 const LazyPath = std.Build.LazyPath;
 const Module = std.Build.Module;
-pub const clblast = @import("clblast");
 
 pub const Options = struct {
     target: Target,
     optimize: Mode,
     shared: bool, // static or shared lib
-    opencl: ?clblast.OpenCL = null,
-    clblast: bool = false,
     build_number: usize = 0, // number that will be writen in build info
 };
 
@@ -21,7 +18,7 @@ pub const Context = struct {
     b: *Builder,
     options: Options,
     build_info: *CompileStep,
-    path_prefix: []const u8 = "llama.cpp",
+    path_prefix: []const u8 = "",
     lib: ?*CompileStep = null,
 
     pub fn init(b: *Builder, op: Options) Context {
@@ -61,7 +58,6 @@ pub const Context = struct {
     /// just builds everything needed and links it to your target
     pub fn link(ctx: *Context, comp: *CompileStep) void {
         comp.linkLibrary(ctx.library());
-        if (ctx.options.opencl) |ocl| ocl.link(ctx.b, comp);
     }
 
     /// build single library containing everything
@@ -94,11 +90,12 @@ pub const Context = struct {
     /// zig module with translated headers
     pub fn moduleLlama(ctx: *Context) *Module {
         const tc = ctx.b.addTranslateC(.{
-            .root_source_file = ctx.path("llama.h"),
+            .root_source_file = ctx.includePath("llama.h"),
             .target = ctx.options.target,
             .optimize = ctx.options.optimize,
         });
         if (ctx.options.shared) tcDefineCMacro(tc, "LLAMA_SHARED", null);
+        tc.addIncludeDir(ctx.path(&.{ "ggml", "include" }).getPath(ctx.b));
         tcDefineCMacro(tc, "NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
         return tc.addModule("llama.h");
     }
@@ -106,7 +103,7 @@ pub const Context = struct {
     /// zig module with translated headers
     pub fn moduleGgml(ctx: *Context) *Module {
         const tc = ctx.b.addTranslateC(.{
-            .root_source_file = ctx.path("ggml.h"),
+            .root_source_file = ctx.path(&.{ "ggml", "include", "ggml.h" }),
             .target = ctx.options.target,
             .optimize = ctx.options.optimize,
         });
@@ -123,26 +120,18 @@ pub const Context = struct {
 
     pub fn addGgml(ctx: *Context, compile: *CompileStep) void {
         ctx.common(compile);
+        compile.addIncludePath(ctx.path(&.{ "ggml", "include" }));
+        compile.addIncludePath(ctx.path(&.{ "ggml", "src" }));
 
         const sources = [_]LazyPath{
-            ctx.path("ggml-alloc.c"),
-            ctx.path("ggml-backend.c"),
-            //ctx.path("ggml-mpi.c"),
-            ctx.path("ggml-quants.c"),
-            ctx.path("ggml.c"),
+            ctx.path(&.{ "ggml", "src", "ggml-alloc.c" }),
+            ctx.path(&.{ "ggml", "src", "ggml-backend-reg.cpp" }),
+            ctx.path(&.{ "ggml", "src", "ggml-backend.cpp" }),
+            ctx.path(&.{ "ggml", "src", "ggml-opt.cpp" }),
+            ctx.path(&.{ "ggml", "src", "ggml-quants.c" }),
+            ctx.path(&.{ "ggml", "src", "ggml-threading.cpp" }),
+            ctx.path(&.{ "ggml", "src", "ggml.c" }),
         };
-        if (ctx.options.clblast) {
-            compile.addCSourceFile(.{ .file = ctx.path("ggml-opencl.cpp"), .flags = ctx.flags() });
-            compile.defineCMacro("GGML_USE_CLBLAST", null);
-
-            const blast = clblast.ClBlast.build(ctx.b, .{
-                .target = ctx.options.target,
-                .optimize = ctx.options.optimize,
-                .backend = .{ .opencl = ctx.options.opencl.? },
-            });
-            blast.link(compile);
-            ctx.options.opencl.?.link(ctx.b, compile);
-        }
         for (sources) |src| compile.addCSourceFile(.{ .file = src, .flags = ctx.flags() });
         //if (ctx.cuda) compile.ctx.path("ggml-cuda.cu");
 
@@ -150,31 +139,48 @@ pub const Context = struct {
 
     pub fn addLLama(ctx: *Context, compile: *CompileStep) void {
         ctx.common(compile);
-        compile.addCSourceFile(.{ .file = ctx.path("llama.cpp"), .flags = ctx.flags() });
-        compile.addCSourceFile(.{ .file = ctx.path("common/common.cpp"), .flags = ctx.flags() });
-        compile.addCSourceFile(.{ .file = ctx.path("common/sampling.cpp"), .flags = ctx.flags() });
-        compile.addCSourceFile(.{ .file = ctx.path("common/grammar-parser.cpp"), .flags = ctx.flags() });
-        // kind of optional depending on context, see if worth spliting in another lib
-        compile.addCSourceFile(.{ .file = ctx.path("common/train.cpp"), .flags = ctx.flags() });
-        compile.addCSourceFile(.{ .file = ctx.path("common/console.cpp"), .flags = ctx.flags() });
+        compile.addIncludePath(ctx.path(&.{"include"}));
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-vocab.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-grammar.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-sampling.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-vocab.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("unicode-data.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("unicode.cpp"), .flags = ctx.flags() });
+
+        compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "common.cpp" }), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "sampling.cpp" }), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "console.cpp" }), .flags = ctx.flags() });
+
+        compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "json-schema-to-grammar.cpp" }), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "speculative.cpp" }), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "ngram-cache.cpp" }), .flags = ctx.flags() });
     }
 
     pub fn samples(ctx: *Context, install: bool) !void {
         const b = ctx.b;
         const examples = [_][]const u8{
             "main",
-            "quantize",
-            "perplexity",
-            "embedding",
-            "finetune",
-            "train-text-from-scratch",
-            "lookahead",
-            "speculative",
-            "parallel",
+            "simple",
+            // "perplexity",
+            // "embedding",
+            // "finetune",
+            // "train-text-from-scratch",
+            // "lookahead",
+            // "speculative",
+            // "parallel",
         };
 
         for (examples) |ex| {
             const exe = b.addExecutable(.{ .name = ex, .target = ctx.options.target, .optimize = ctx.options.optimize });
+            exe.addIncludePath(ctx.path(&.{"include"}));
+            exe.addIncludePath(ctx.path(&.{"common"}));
+            exe.addIncludePath(ctx.path(&.{ "ggml", "include" }));
+            exe.addIncludePath(ctx.path(&.{ "ggml", "src" }));
+            exe.addCSourceFile(.{ .file = ctx.path(&.{ "common", "log.cpp" }), .flags = ctx.flags() });
+            exe.addCSourceFile(.{ .file = ctx.path(&.{ "common", "arg.cpp" }), .flags = ctx.flags() });
+
             exe.want_lto = false; // TODO: review, causes: error: lld-link: undefined symbol: __declspec(dllimport) _create_locale
             if (install) b.installArtifact(exe);
             { // add all c/cpp files from example dir
@@ -191,7 +197,6 @@ pub const Context = struct {
                     else => {},
                 };
             }
-            exe.addIncludePath(ctx.path("common"));
             ctx.common(exe);
             ctx.link(exe);
 
@@ -209,12 +214,21 @@ pub const Context = struct {
 
     fn common(ctx: Context, lib: *CompileStep) void {
         lib.linkLibCpp();
-        lib.addIncludePath(ctx.path("")); // root
+        lib.addIncludePath(ctx.path(&.{"common"}));
         if (ctx.options.optimize != .Debug) lib.defineCMacro("NDEBUG", null);
     }
 
-    pub fn path(self: Context, p: []const u8) LazyPath {
-        return .{ .cwd_relative = self.b.pathJoin(&.{ self.path_prefix, p }) };
+    pub fn path(self: Context, subpath: []const []const u8) LazyPath {
+        const sp = self.b.pathJoin(subpath);
+        return .{ .cwd_relative = self.b.pathJoin(&.{ self.path_prefix, sp }) };
+    }
+
+    pub fn srcPath(self: Context, p: []const u8) LazyPath {
+        return .{ .cwd_relative = self.b.pathJoin(&.{ self.path_prefix, "src", p }) };
+    }
+
+    pub fn includePath(self: Context, p: []const u8) LazyPath {
+        return .{ .cwd_relative = self.b.pathJoin(&.{ self.path_prefix, "include", p }) };
     }
 };
 

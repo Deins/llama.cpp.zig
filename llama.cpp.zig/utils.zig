@@ -13,9 +13,10 @@ pub fn scopedLog(level: LogLevel, text_: [*:0]const u8, user_data: ?*anyopaque) 
     while (text.len > 0 and text[text.len - 1] == '\n') text = text[0 .. text.len - 1]; // trim newlines
     if (text.len == 1 and text[0] == '.') return; // clean up formatting strings
     switch (level) {
-        .Error => sl.err("{s}", .{text}),
-        .Warn => sl.warn("{s}", .{text}),
-        .Info => sl.info("{s}", .{text}),
+        .ERROR => sl.err("{s}", .{text}),
+        .WARN => sl.warn("{s}", .{text}),
+        .NONE, .INFO, .CONT => sl.info("{s}", .{text}),
+        .DEBUG => sl.debug("{s}", .{text}),
     }
 }
 
@@ -91,13 +92,18 @@ pub const Detokenizer = struct {
 
     /// detokenize, but also display special tokens in their text form. (useful for debugging raw prompt)
     pub fn detokenizeWithSpecial(self: *@This(), model: *llama.Model, token: llama.Token) ![]const u8 {
-        switch (model.tokenGetType(token)) {
-            .LLAMA_TOKEN_TYPE_NORMAL, .LLAMA_TOKEN_TYPE_BYTE => return try self.detokenize(model, token),
-            .LLAMA_TOKEN_TYPE_UNUSED,
-            .LLAMA_TOKEN_TYPE_UNDEFINED,
-            .LLAMA_TOKEN_TYPE_USER_DEFINED,
-            .LLAMA_TOKEN_TYPE_CONTROL,
-            .LLAMA_TOKEN_TYPE_UNKNOWN,
+        switch (model.tokenGetAttr(token)) {
+            .LLAMA_TOKEN_ATTR_NORMAL, .LLAMA_TOKEN_ATTR_BYTE => return try self.detokenize(model, token),
+            // TODO: review, not investigated during llama version migration
+            .LLAMA_TOKEN_ATTR_UNDEFINED,
+            .LLAMA_TOKEN_ATTR_UNKNOWN,
+            .LLAMA_TOKEN_ATTR_UNUSED,
+            .LLAMA_TOKEN_ATTR_CONTROL,
+            .LLAMA_TOKEN_ATTR_USER_DEFINED,
+            .LLAMA_TOKEN_ATTR_NORMALIZED,
+            .LLAMA_TOKEN_ATTR_LSTRIP,
+            .LLAMA_TOKEN_ATTR_RSTRIP,
+            .LLAMA_TOKEN_ATTR_SINGLE_WORD,
             => {
                 const len = self.data.items.len;
                 try self.data.appendSlice(tokenGetText(model, token));
