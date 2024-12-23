@@ -15,7 +15,7 @@ pub fn checkErr(status: opencl.cl_int) !void {
 /// read value from unaligned buffer
 pub fn castFromBuf(comptime T: type, buf: []const u8) T {
     var val: T = undefined;
-    std.mem.copy(u8, @as([*]u8, @ptrCast(&val))[0..@sizeOf(@TypeOf(val))], buf);
+    @memcpy(@as([*]u8, @ptrCast(&val))[0..@sizeOf(@TypeOf(val))], buf);
     return val;
 }
 

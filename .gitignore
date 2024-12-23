@@ -48,8 +48,9 @@ temp
 # Cheers!
 # -andrewrk
 
-zig-cache/
-zig-out/
+zig-cache
+.zig-cache
+zig-out
 /release/
 /debug/
 /build/

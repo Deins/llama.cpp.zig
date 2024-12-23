@@ -1,8 +1,8 @@
 const std = @import("std");
 const llama = @import("build_llama.zig");
-const CrossTarget = std.zig.CrossTarget;
+const Target = std.Build.ResolvedTarget;
 const ArrayList = std.ArrayList;
-const CompileStep = std.Build.CompileStep;
+const CompileStep = std.Build.Step.Compile;
 const ConfigHeader = std.Build.Step.ConfigHeader;
 const Mode = std.builtin.Mode;
 const TranslateCStep = std.Build.TranslateCStep;
@@ -13,7 +13,7 @@ pub const clblast = @import("clblast");
 pub const llama_cpp_path_prefix = "llama.cpp/"; // point to where llama.cpp root is
 
 pub const Options = struct {
-    target: CrossTarget,
+    target: Target,
     optimize: Mode,
     opencl: ?clblast.OpenCL = null,
     clblast: bool = false,
@@ -47,7 +47,7 @@ pub const Context = struct {
 
         const llama_h_module = llama_cpp.moduleLlama();
         const ggml_h_module = llama_cpp.moduleGgml();
-        const deps: []const std.Build.ModuleDependency = &.{
+        const imports: []const std.Build.Module.Import = &.{
             .{
                 .name = "llama.h",
                 .module = llama_h_module,
@@ -62,8 +62,8 @@ pub const Context = struct {
             },
         };
         const mod = b.createModule(.{
-            .source_file = .{ .path = "llama.cpp.zig/llama.zig" },
-            .dependencies = deps,
+            .root_source_file = b.path("llama.cpp.zig/llama.zig"),
+            .imports = imports,
         });
 
         return .{
@@ -86,10 +86,10 @@ pub const Context = struct {
             .name = name,
             .target = self.options.target,
             .optimize = self.options.optimize,
-            .root_source_file = .{ .path = b.pathJoin(&.{ path, std.mem.join(b.allocator, "", &.{ name, ".zig" }) catch @panic("OOM") }) },
+            .root_source_file = b.path(b.pathJoin(&.{ path, std.mem.join(b.allocator, "", &.{ name, ".zig" }) catch @panic("OOM") })),
         });
         exe.stack_size = 32 * 1024 * 1024;
-        exe.addModule("llama", self.module);
+        exe.root_module.addImport("llama", self.module);
         self.link(exe);
         b.installArtifact(exe); // location when the user invokes the "install" step (the default step when running `zig build`).
 
@@ -128,12 +128,12 @@ pub fn build(b: *std.Build) !void {
 
     { // tests
         const main_tests = b.addTest(.{
-            .root_source_file = .{ .path = "llama.cpp.zig/llama.zig" },
+            .root_source_file = b.path("llama.cpp.zig/llama.zig"),
             .target = target,
             .optimize = optimize,
         });
         llama_zig.link(main_tests);
-        main_tests.addModule("llama.h", llama_zig.llama_h_module);
+        main_tests.root_module.addImport("llama.h", llama_zig.llama_h_module);
         const run_main_tests = b.addRunArtifact(main_tests);
 
         const test_step = b.step("test", "Run library tests");
