@@ -11,8 +11,10 @@
     },
     .dependencies = .{
         .clblast = .{
-            .url = "https://github.com/Deins/CLBlast.build.zig/archive/refs/tags/0.0.2.tar.gz",
-            .hash = "12206fa67c773ff701dd7c2a41d910b55be4637b2502c46c0522655ebd22a74b1b14",
+            .lazy = true,
+            //.path = "CLBlast.build.zig",
+            .url = "git+https://github.com/Deins/CLBlast.build.zig/?ref=HEAD#f625908b45de077604951084b9e8d989cedcf2d2",
+            .hash = "1220bb9caa813a519a5bf9f7facbb514c3772559adc6149d0bf4901bc1634c11d86c",
         },
     },
 }

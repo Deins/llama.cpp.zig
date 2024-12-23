@@ -1,14 +1,14 @@
 const std = @import("std");
 const Builder = std.Build;
-const CrossTarget = std.zig.CrossTarget;
+const Target = std.Build.ResolvedTarget;
 const Mode = std.builtin.Mode;
-const CompileStep = std.Build.CompileStep;
+const CompileStep = std.Build.Step.Compile;
 const LazyPath = std.Build.LazyPath;
 const Module = std.Build.Module;
 pub const clblast = @import("clblast");
 
 pub const Options = struct {
-    target: CrossTarget,
+    target: Target,
     optimize: Mode,
     shared: bool, // static or shared lib
     opencl: ?clblast.OpenCL = null,
@@ -27,22 +27,28 @@ pub const Context = struct {
     pub fn init(b: *Builder, op: Options) Context {
         const path_prefix = b.pathJoin(&.{ thisPath(), "/llama.cpp" });
         const zig_version = @import("builtin").zig_version_string;
-        const exec = if (@hasDecl(std.ChildProcess, "exec")) std.ChildProcess.exec else std.ChildProcess.run; // zig 11 vs nightly compatibility
-        const commit_hash = exec(
+        const commit_hash = std.process.Child.run(
             .{ .allocator = b.allocator, .argv = &.{ "git", "rev-parse", "HEAD" } },
         ) catch |err| {
             std.log.err("Cant get git comiit hash! err: {}", .{err});
             unreachable;
         };
 
-        const build_info_path = b.pathJoin(&.{ "common", "build-info.cpp" });
-        const build_info = b.fmt(
+        const build_info_zig = true; // use cpp or zig file for build-info
+        const build_info_path = b.pathJoin(&.{ "common", "build-info." ++ if (build_info_zig) "zig" else "cpp" });
+        const build_info = b.fmt(if (build_info_zig)
+            \\pub export var LLAMA_BUILD_NUMBER : c_int = {};
+            \\pub export var LLAMA_COMMIT = "{s}";
+            \\pub export var LLAMA_COMPILER = "Zig {s}";
+            \\pub export var LLAMA_BUILD_TARGET = "{s}_{s}";
+            \\
+        else
             \\int LLAMA_BUILD_NUMBER = {};
             \\char const *LLAMA_COMMIT = "{s}";
             \\char const *LLAMA_COMPILER = "Zig {s}";
             \\char const *LLAMA_BUILD_TARGET = "{s}_{s}";
             \\
-        , .{ op.build_number, commit_hash.stdout[0 .. commit_hash.stdout.len - 1], zig_version, op.target.allocDescription(b.allocator) catch @panic("OOM"), @tagName(op.optimize) });
+        , .{ op.build_number, commit_hash.stdout[0 .. commit_hash.stdout.len - 1], zig_version, op.target.result.zigTriple(b.allocator) catch unreachable, @tagName(op.optimize) });
 
         return .{
             .b = b,
@@ -55,7 +61,7 @@ pub const Context = struct {
     /// just builds everything needed and links it to your target
     pub fn link(ctx: *Context, comp: *CompileStep) void {
         comp.linkLibrary(ctx.library());
-        if (ctx.options.opencl) |ocl| ocl.link(comp);
+        if (ctx.options.opencl) |ocl| ocl.link(ctx.b, comp);
     }
 
     /// build single library containing everything
@@ -64,12 +70,12 @@ pub const Context = struct {
         const lib_opt = .{ .name = "llama.cpp", .target = ctx.options.target, .optimize = ctx.options.optimize };
         const lib = if (ctx.options.shared) ctx.b.addSharedLibrary(lib_opt) else ctx.b.addStaticLibrary(lib_opt);
         ctx.addAll(lib);
-        if (ctx.options.target.getAbi() != .msvc)
+        if (ctx.options.target.result.abi != .msvc)
             lib.defineCMacro("_GNU_SOURCE", null);
         if (ctx.options.shared) {
             lib.defineCMacro("LLAMA_SHARED", null);
             lib.defineCMacro("LLAMA_BUILD", null);
-            if (ctx.options.target.getOsTag() == .windows) {
+            if (ctx.options.target.result.os.tag == .windows) {
                 std.log.warn("For shared linking to work, requires header llama.h modification:\n\'#    if defined(_WIN32) && (!defined(__MINGW32__) || defined(ZIG))'", .{});
                 lib.defineCMacro("ZIG", null);
             }
@@ -88,24 +94,26 @@ pub const Context = struct {
     /// zig module with translated headers
     pub fn moduleLlama(ctx: *Context) *Module {
         const tc = ctx.b.addTranslateC(.{
-            .source_file = ctx.path("llama.h"),
+            .root_source_file = ctx.path("llama.h"),
             .target = ctx.options.target,
             .optimize = ctx.options.optimize,
         });
-        if (ctx.options.shared) tc.defineCMacro("LLAMA_SHARED", null);
-        tc.defineCMacro("NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
+        if (ctx.options.shared) tcDefineCMacro(tc, "LLAMA_SHARED", null);
+        tcDefineCMacro(tc, "NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
         return tc.addModule("llama.h");
     }
 
     /// zig module with translated headers
     pub fn moduleGgml(ctx: *Context) *Module {
         const tc = ctx.b.addTranslateC(.{
-            .source_file = ctx.path("ggml.h"),
+            .root_source_file = ctx.path("ggml.h"),
             .target = ctx.options.target,
             .optimize = ctx.options.optimize,
         });
-        if (ctx.options.shared) tc.defineCMacro("LLAMA_SHARED", null);
-        tc.defineCMacro("NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
+
+        tcDefineCMacro(tc, "LLAMA_SHARED", null);
+        tcDefineCMacro(tc, "NDEBUG", null);
+
         return tc.addModule("ggml.h");
     }
 
@@ -133,7 +141,7 @@ pub const Context = struct {
                 .backend = .{ .opencl = ctx.options.opencl.? },
             });
             blast.link(compile);
-            ctx.options.opencl.?.link(compile);
+            ctx.options.opencl.?.link(ctx.b, compile);
         }
         for (sources) |src| compile.addCSourceFile(.{ .file = src, .flags = ctx.flags() });
         //if (ctx.cuda) compile.ctx.path("ggml-cuda.cu");
@@ -171,14 +179,14 @@ pub const Context = struct {
             if (install) b.installArtifact(exe);
             { // add all c/cpp files from example dir
                 const rpath = b.pathJoin(&.{ ctx.path_prefix, "examples", ex });
-                exe.addIncludePath(.{ .path = rpath });
+                exe.addIncludePath(.{ .cwd_relative = rpath });
                 var dir = if (@hasDecl(std.fs, "openIterableDirAbsolute")) try std.fs.openIterableDirAbsolute(b.pathFromRoot(rpath), .{}) else try std.fs.openDirAbsolute(b.pathFromRoot(rpath), .{ .iterate = true }); // zig 11 vs nightly compatibility
                 defer dir.close();
                 var dir_it = dir.iterate();
                 while (try dir_it.next()) |f| switch (f.kind) {
                     .file => if (std.ascii.endsWithIgnoreCase(f.name, ".c") or std.ascii.endsWithIgnoreCase(f.name, ".cpp")) {
                         const src = b.pathJoin(&.{ ctx.path_prefix, "examples", ex, f.name });
-                        exe.addCSourceFile(.{ .file = .{ .path = src }, .flags = &.{} });
+                        exe.addCSourceFile(.{ .file = .{ .cwd_relative = src }, .flags = &.{} });
                     },
                     else => {},
                 };
@@ -206,10 +214,16 @@ pub const Context = struct {
     }
 
     pub fn path(self: Context, p: []const u8) LazyPath {
-        return .{ .path = self.b.pathJoin(&.{ self.path_prefix, p }) };
+        return .{ .cwd_relative = self.b.pathJoin(&.{ self.path_prefix, p }) };
     }
 };
 
 fn thisPath() []const u8 {
     return std.fs.path.dirname(@src().file) orelse ".";
+}
+
+// TODO: idk, defineCMacro returns: TranslateC.zig:110:28: error: root struct of file 'Build' has no member named 'constructranslate_cMacro'
+// use raw macro for now
+fn tcDefineCMacro(tc: *std.Build.Step.TranslateC, comptime name: []const u8, comptime value: ?[]const u8) void {
+    tc.defineCMacroRaw(name ++ "=" ++ (value orelse "1"));
 }

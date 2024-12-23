@@ -175,7 +175,7 @@ pub fn main() !void {
     try run(alloc, args);
 }
 
-pub const std_options = struct {
-    pub const log_level = std.log.Level.debug;
-    pub const log_scope_levels: []const std.log.ScopeLevel = &.{.{ .scope = .llama_cpp, .level = .info }};
+pub const std_options = std.Options{
+    .log_level = std.log.Level.debug,
+    .log_scope_levels = &.{.{ .scope = .llama_cpp, .level = .info }},
 };
