@@ -45,75 +45,84 @@ pub const chatBuiltinTemplates = c.llama_chat_builtin_templates;
 pub const SamplerContext = c.llama_sampler_context_t;
 pub const SamplerChainParams = c.llama_sampler_chain_params;
 
-pub const SamplerChainPtr = *align(@alignOf(c.llama_sampler)) SamplerChain;
-pub const SamplerChain = extern opaque {
-    pub fn init(p: SamplerChainParams) SamplerChainPtr {
+pub const SamplerPtr = *align(@alignOf(c.llama_sampler)) Sampler;
+pub const Sampler = extern opaque {
+    // ========================================================================
+    // Sampler chain
+    // ========================================================================
+    pub fn initChain(p: SamplerChainParams) SamplerPtr {
         return @ptrCast(c.llama_sampler_chain_init(p));
     }
-    pub fn initDefault() SamplerChainPtr {
-        return init(c.llama_sampler_chain_default_params());
+    pub fn initChainDefault() SamplerPtr {
+        return initChain(c.llama_sampler_chain_default_params());
     }
 
-    pub fn initGreedy() SamplerChainPtr {
+    // ========================================================================
+    // Samplers
+    // ========================================================================
+    pub fn initGreedy() SamplerPtr {
         return @ptrCast(c.llama_sampler_init_greedy());
     }
     // TODO: other samplers
 
-    pub fn deinit(self: SamplerChainPtr) void {
+    // ========================================================================
+    // Memeber functions:
+    // ========================================================================
+    pub fn deinit(self: SamplerPtr) void {
         c.llama_sampler_free(@ptrCast(self));
     }
 
-    pub fn name(self: SamplerChainPtr) CStr {
+    pub fn name(self: SamplerPtr) CStr {
         return c.llama_sampler_name(@ptrCast(self));
     }
 
-    pub fn accept(self: SamplerChainPtr, tok: Token) void {
+    pub fn accept(self: SamplerPtr, tok: Token) void {
         c.llama_sampler_accept(@ptrCast(self), tok);
     }
 
-    pub fn apply(self: SamplerChainPtr, tok_data: *TokenDataArray) void {
+    pub fn apply(self: SamplerPtr, tok_data: *TokenDataArray) void {
         c.llama_sampler_apply(@ptrCast(self), tok_data);
     }
 
-    pub fn reset(self: SamplerChainPtr) void {
+    pub fn reset(self: SamplerPtr) void {
         c.llama_sampler_reset(@ptrCast(self));
     }
 
-    pub fn clone(self: SamplerChainPtr) SamplerChain {
+    pub fn clone(self: SamplerPtr) Sampler {
         return @ptrCast(c.llama_sampler_clone(@ptrCast(self)));
     }
 
-    pub fn add(self: SamplerChainPtr, other: SamplerChainPtr) void {
+    pub fn add(self: SamplerPtr, other: SamplerPtr) void {
         return c.llama_sampler_chain_add(@ptrCast(self), @ptrCast(other));
     }
 
-    pub fn get(self: SamplerChainPtr, i: i32) void {
+    pub fn get(self: SamplerPtr, i: i32) void {
         return c.llama_sampler_get(@ptrCast(self), i);
     }
 
     // llama_sampler_chain_n
-    pub fn n(self: SamplerChainPtr) i32 {
+    pub fn n(self: SamplerPtr) i32 {
         return c.llama_sampler_chain_n(@ptrCast(self));
     }
 
-    pub fn remove(self: SamplerChainPtr, i: i32) SamplerChain {
+    pub fn remove(self: SamplerPtr, i: i32) Sampler {
         return @ptrCast(c.llama_sampler_chain_remove(@ptrCast(self), i));
     }
 
-    pub fn sample(self: SamplerChainPtr, ctx: *Context, idx: i32) Token {
+    pub fn sample(self: SamplerPtr, ctx: *Context, idx: i32) Token {
         return c.llama_sampler_sample(@ptrCast(self), @ptrCast(ctx), idx);
     }
 
     // perf
-    pub inline fn perf(self: SamplerChainPtr) PerfContextData {
+    pub inline fn perf(self: SamplerPtr) PerfContextData {
         return c.llama_perf_sampler(@ptrCast(self));
     }
 
-    pub inline fn perfPrint(self: SamplerChainPtr) void {
+    pub inline fn perfPrint(self: SamplerPtr) void {
         c.llama_perf_sampler_print(@ptrCast(self));
     }
 
-    pub inline fn perfReset(self: SamplerChainPtr) void {
+    pub inline fn perfReset(self: SamplerPtr) void {
         c.llama_perf_sampler_reset(@ptrCast(self));
     }
 };

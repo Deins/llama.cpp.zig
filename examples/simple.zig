@@ -44,9 +44,9 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     const ctx = try llama.Context.initWithModel(model, cparams);
     defer ctx.deinit();
 
-    var sampler = llama.SamplerChain.init(.{ .no_perf = false });
+    var sampler = llama.Sampler.initChain(.{ .no_perf = false });
     defer sampler.deinit();
-    sampler.add(llama.SamplerChain.initGreedy());
+    sampler.add(llama.Sampler.initGreedy());
 
     // var prompt = try llama.Prompt.init(alloc, .{
     //     .model = model,
@@ -68,13 +68,18 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     std.debug.print("PROMPT:\n{s}", .{detokenizer.getText()});
     detokenizer.clearRetainingCapacity();
 
-    const batch = llama.Batch.initOne(tokenizer.getTokens());
+    var batch = llama.Batch.initOne(tokenizer.getTokens());
 
     // generate response
     for (0..args.max_gen) |_| {
         try batch.decode(ctx);
         const token = sampler.sample(ctx, -1);
         if (llama.c.llama_token_is_eog(@ptrCast(model), token)) break;
+        // prepare the next batch with the sampled token
+        var token_arr: [1]Token = .{token};
+        batch = llama.Batch.initOne(token_arr[0..]);
+
+        // print
         std.debug.print("{s}", .{try detokenizer.detokenize(model, token)});
         detokenizer.clearRetainingCapacity();
     }

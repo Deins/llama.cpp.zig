@@ -6,9 +6,37 @@ const CompileStep = std.Build.Step.Compile;
 const LazyPath = std.Build.LazyPath;
 const Module = std.Build.Module;
 
+pub const Backends = struct {
+    cpu: bool = true,
+    // untested possibly unsupported at the moment:
+    cuda: bool = false,
+    metal: bool = false,
+    sycl: bool = false,
+    vulkan: bool = false,
+    opencl: bool = false,
+    cann: bool = false,
+    blas: bool = false,
+    rpc: bool = false,
+    kompute: bool = false,
+
+    pub fn addDefines(self: @This(), comp: *CompileStep) void {
+        if (self.cuda) comp.defineCMacro("GGML_USE_CUDA", null);
+        if (self.metal) comp.defineCMacro("GGML_USE_METAL", null);
+        if (self.sycl) comp.defineCMacro("GGML_USE_SYCL", null);
+        if (self.vulkan) comp.defineCMacro("GGML_USE_VULKAN", null);
+        if (self.opencl) comp.defineCMacro("GGML_USE_OPENCL", null);
+        if (self.cann) comp.defineCMacro("GGML_USE_CANN", null);
+        if (self.blas) comp.defineCMacro("GGML_USE_BLAS", null);
+        if (self.rpc) comp.defineCMacro("GGML_USE_RPC", null);
+        if (self.kompute) comp.defineCMacro("GGML_USE_KOMPUTE", null);
+        if (self.cpu) comp.defineCMacro("GGML_USE_CPU", null);
+    }
+};
+
 pub const Options = struct {
     target: Target,
     optimize: Mode,
+    backends: Backends = .{},
     shared: bool, // static or shared lib
     build_number: usize = 0, // number that will be writen in build info
 };
@@ -57,25 +85,29 @@ pub const Context = struct {
 
     /// just builds everything needed and links it to your target
     pub fn link(ctx: *Context, comp: *CompileStep) void {
-        comp.linkLibrary(ctx.library());
+        const lib = ctx.library();
+        comp.linkLibrary(lib);
+        if (ctx.options.shared) ctx.b.installArtifact(lib);
     }
 
     /// build single library containing everything
     pub fn library(ctx: *Context) *CompileStep {
         if (ctx.lib) |l| return l;
         const lib_opt = .{ .name = "llama.cpp", .target = ctx.options.target, .optimize = ctx.options.optimize };
-        const lib = if (ctx.options.shared) ctx.b.addSharedLibrary(lib_opt) else ctx.b.addStaticLibrary(lib_opt);
-        ctx.addAll(lib);
-        if (ctx.options.target.result.abi != .msvc)
-            lib.defineCMacro("_GNU_SOURCE", null);
-        if (ctx.options.shared) {
+        const lib = if (ctx.options.shared) blk: {
+            const lib = ctx.b.addSharedLibrary(lib_opt);
             lib.defineCMacro("LLAMA_SHARED", null);
             lib.defineCMacro("LLAMA_BUILD", null);
             if (ctx.options.target.result.os.tag == .windows) {
                 std.log.warn("For shared linking to work, requires header llama.h modification:\n\'#    if defined(_WIN32) && (!defined(__MINGW32__) || defined(ZIG))'", .{});
                 lib.defineCMacro("ZIG", null);
             }
-        }
+            break :blk lib;
+        } else ctx.b.addStaticLibrary(lib_opt);
+        ctx.options.backends.addDefines(lib);
+        ctx.addAll(lib);
+        if (ctx.options.target.result.abi != .msvc)
+            lib.defineCMacro("_GNU_SOURCE", null);
         ctx.lib = lib;
         return lib;
     }
@@ -123,7 +155,12 @@ pub const Context = struct {
         compile.addIncludePath(ctx.path(&.{ "ggml", "include" }));
         compile.addIncludePath(ctx.path(&.{ "ggml", "src" }));
 
-        const sources = [_]LazyPath{
+        if (ctx.options.target.result.os.tag == .windows) {
+            compile.defineCMacro("GGML_ATTRIBUTE_FORMAT(...)", "");
+        }
+
+        var sources = std.ArrayList(LazyPath).init(ctx.b.allocator);
+        sources.appendSlice(&.{
             ctx.path(&.{ "ggml", "src", "ggml-alloc.c" }),
             ctx.path(&.{ "ggml", "src", "ggml-backend-reg.cpp" }),
             ctx.path(&.{ "ggml", "src", "ggml-backend.cpp" }),
@@ -131,8 +168,24 @@ pub const Context = struct {
             ctx.path(&.{ "ggml", "src", "ggml-quants.c" }),
             ctx.path(&.{ "ggml", "src", "ggml-threading.cpp" }),
             ctx.path(&.{ "ggml", "src", "ggml.c" }),
-        };
-        for (sources) |src| compile.addCSourceFile(.{ .file = src, .flags = ctx.flags() });
+        }) catch unreachable;
+
+        if (ctx.options.backends.cpu) {
+            compile.addIncludePath(ctx.path(&.{ "ggml", "src", "ggml-cpu" }));
+            compile.linkLibCpp();
+            sources.appendSlice(&.{
+                ctx.path(&.{ "ggml", "src", "ggml-cpu", "ggml-cpu.c" }),
+                ctx.path(&.{ "ggml", "src", "ggml-cpu", "ggml-cpu.cpp" }),
+                ctx.path(&.{ "ggml", "src", "ggml-cpu", "ggml-cpu-aarch64.cpp" }),
+                ctx.path(&.{ "ggml", "src", "ggml-cpu", "ggml-cpu-hbm.cpp" }),
+                ctx.path(&.{ "ggml", "src", "ggml-cpu", "ggml-cpu-quants.c" }),
+                ctx.path(&.{ "ggml", "src", "ggml-cpu", "ggml-cpu-traits.cpp" }),
+                ctx.path(&.{ "ggml", "src", "ggml-cpu", "amx/amx.cpp" }),
+                ctx.path(&.{ "ggml", "src", "ggml-cpu", "amx/mmq.cpp" }),
+            }) catch unreachable;
+        }
+
+        for (sources.items) |src| compile.addCSourceFile(.{ .file = src, .flags = ctx.flags() });
         //if (ctx.cuda) compile.ctx.path("ggml-cuda.cu");
 
     }
@@ -156,6 +209,9 @@ pub const Context = struct {
         compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "json-schema-to-grammar.cpp" }), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "speculative.cpp" }), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "ngram-cache.cpp" }), .flags = ctx.flags() });
+
+        compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "log.cpp" }), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.path(&.{ "common", "arg.cpp" }), .flags = ctx.flags() });
     }
 
     pub fn samples(ctx: *Context, install: bool) !void {
@@ -178,8 +234,6 @@ pub const Context = struct {
             exe.addIncludePath(ctx.path(&.{"common"}));
             exe.addIncludePath(ctx.path(&.{ "ggml", "include" }));
             exe.addIncludePath(ctx.path(&.{ "ggml", "src" }));
-            exe.addCSourceFile(.{ .file = ctx.path(&.{ "common", "log.cpp" }), .flags = ctx.flags() });
-            exe.addCSourceFile(.{ .file = ctx.path(&.{ "common", "arg.cpp" }), .flags = ctx.flags() });
 
             exe.want_lto = false; // TODO: review, causes: error: lld-link: undefined symbol: __declspec(dllimport) _create_locale
             if (install) b.installArtifact(exe);
@@ -192,7 +246,7 @@ pub const Context = struct {
                 while (try dir_it.next()) |f| switch (f.kind) {
                     .file => if (std.ascii.endsWithIgnoreCase(f.name, ".c") or std.ascii.endsWithIgnoreCase(f.name, ".cpp")) {
                         const src = b.pathJoin(&.{ ctx.path_prefix, "examples", ex, f.name });
-                        exe.addCSourceFile(.{ .file = .{ .cwd_relative = src }, .flags = &.{} });
+                        exe.addCSourceFile(.{ .file = .{ .cwd_relative = src }, .flags = ctx.flags() });
                     },
                     else => {},
                 };
@@ -207,9 +261,9 @@ pub const Context = struct {
         }
     }
 
-    fn flags(ctx: Context) [][]const u8 {
+    fn flags(ctx: Context) []const []const u8 {
         _ = ctx;
-        return &.{};
+        return &.{"-fno-sanitize=undefined"};
     }
 
     fn common(ctx: Context, lib: *CompileStep) void {
