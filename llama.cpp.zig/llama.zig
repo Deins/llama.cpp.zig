@@ -27,14 +27,13 @@ pub const Pos = c.llama_pos;
 pub const Token = c.llama_token;
 pub const SeqId = c.llama_seq_id;
 
-pub const VocabType = c.llama_vocab_type;
+pub const VocabType = c.enum_llama_vocab_type;
 pub const VocabPreType = c.llama_vocab_pre_type;
-pub const RopeType = c.llama_rope_type;
+pub const RopeType = c.enum_llama_rope_type;
 pub const TokenType = c.llama_token_type;
 pub const TokenAttr = c.llama_token_attr;
 pub const FType = c.llama_ftype;
 pub const RopeScalingType = c.llama_rope_scaling_type;
-pub const poolingType = c.llama_pooling_type;
 pub const AttentionType = c.llama_attention_type;
 pub const SplitMode = c.llama_split_mode;
 
@@ -307,6 +306,15 @@ pub const Model = extern opaque {
     pub inline fn nEmbd(self: *const @This()) i32 {
         return (c.llama_n_embd(self.cCPtr()));
     }
+    pub inline fn nLayer(self: *const @This()) i32 {
+        return (c.llama_n_layer(self.cCPtr()));
+    }
+    pub inline fn nHead(self: *const @This()) i32 {
+        return (c.llama_n_head(self.cCPtr()));
+    }
+    pub inline fn ropeType(self: *const @This()) RopeType {
+        return c.llama_rope_type(self.cCPtr());
+    }
     // Get the model's RoPE frequency scaling factor
     pub inline fn ropeFreqScaleTrain(self: *const @This()) f32 {
         return c.llama_rope_freq_scale_train(self.cCPtr());
@@ -359,6 +367,24 @@ pub const Model = extern opaque {
     // Get a llama model tensor
     pub inline fn getTensor(self: *const @This(), name: CStr) ?*c.ggml_tensor {
         return c.llama_get_model_tensor(self.cCPtr(), name);
+    }
+
+    pub inline fn hasEncoder(model: *const @This()) bool {
+        return c.llama_model_has_encoder(model.cCPtr());
+    }
+
+    pub inline fn hasDecoder(model: *const @This()) bool {
+        return c.llama_model_has_decoder(model.cCPtr());
+    }
+
+    // For encoder-decoder models, this function returns id of the token that must be provided
+    // to the decoder to start generating output sequence. For other models, it returns -1.
+    pub inline fn decoderStartToken(model: *const @This()) Token {
+        return c.llama_model_decoder_start_token(model.cCPtr());
+    }
+
+    pub inline fn isReccurent(model: *const @This()) bool {
+        return c.llama_model_is_recurrent(model.cCPtr());
     }
 
     pub inline fn modelQuantize(self: *const @This(), fname_input: CStr, fname_output: CStr, params: ModelQuantizeParams) !void {
@@ -458,6 +484,38 @@ pub const Model = extern opaque {
     }
 };
 
+pub const LoraAdapterPtr = *align(@alignOf(c.llama_lora_adapter)) LoraAdapter;
+pub const LoraAdapter = opaque {
+    // Load a LoRA adapter from file
+    // The loaded adapter will be associated to the given model, and will be free when the model is deleted
+    pub fn initAdapter(model: *Model, path: [:0]const u8) LoraAdapterPtr {
+        return c.llama_lora_adapter_init(model, path.ptr);
+    }
+
+    // Add a loaded LoRA adapter to given context
+    // This will not modify model's weight
+    pub fn set(ctx: *Context, adapter: LoraAdapterPtr, scale: f32) i32 {
+        return c.llama_lora_adapter_set(ctx, adapter, scale);
+    }
+
+    // Remove a specific LoRA adapter from given context
+    // Return -1 if the adapter is not present in the context
+    pub fn remove(adapter: LoraAdapterPtr, ctx: *Context) i32 {
+        return c.llama_lora_adapter_remove(ctx, adapter);
+    }
+
+    // Remove all LoRA adapters from given context
+    pub fn clear(ctx: *Context) i32 {
+        return c.llama_lora_adapter_remove(ctx);
+    }
+
+    // Manually free a LoRA adapter
+    // Note: loaded adapters will be free when the associated model is deleted
+    pub fn deinit(self: LoraAdapterPtr) void {
+        c.llama_lora_adapter_free(self);
+    }
+};
+
 pub const Context = opaque {
     pub const Params = c.llama_context_params;
     pub const defaultParams = c.llama_context_default_params;
@@ -481,6 +539,18 @@ pub const Context = opaque {
 
     pub inline fn nBatch(self: *const @This()) u32 {
         return c.llama_n_batch(self.cCPtr());
+    }
+
+    pub inline fn nUBatch(self: *const @This()) u32 {
+        return c.llama_n_ubatch(self.cCPtr());
+    }
+
+    pub inline fn nSeqMax(self: *const @This()) u32 {
+        return c.llama_n_seq_max(self.cCPtr());
+    }
+
+    pub inline fn poolingType(self: *const @This()) u32 {
+        return c.llama_pooling_type(self.cCPtr());
     }
 
     //
@@ -713,6 +783,13 @@ pub const Context = opaque {
     pub inline fn perfReset(self: *Context) void {
         c.llama_perf_context_reset(@ptrCast(self));
     }
+
+    pub inline fn attachThreadPool(self: *Context, threadpool: c.ggml_threadpool_t, threadpool_batch: c.ggml_threadpool_t) void {
+        c.llama_attach_threadpool(@ptrCast(self), threadpool, threadpool_batch);
+    }
+    pub inline fn deatachThreadPool(self: *Context) void {
+        c.llama_detach_threadpool(@ptrCast(self));
+    }
 };
 
 // Information associated with an individual cell in the KV cache view.
@@ -781,31 +858,14 @@ comptime {
 // Helpers for getting default parameters
 pub const timeUs = c.llama_time_us;
 pub const maxDevices = c.llama_max_devices;
+pub const supportsMmap = c.llama_supports_mmap;
+pub const supportsMlock = c.llama_supports_mlock;
+pub const supportsGpu_offload = c.llama_supports_gpu_offload;
+pub const supportsRpc = c.llama_supports_rpc;
 
 //
 // Decoding
 //
-
-// Run the llama inference to obtain the logits and probabilities for the next token(s).
-// tokens + n_tokens is the provided batch of new tokens to process
-// n_past is the number of tokens to use from previous eval calls
-// Returns 0 on success
-// DEPRECATED: use llama_decode() instead
-// LLAMA_API DEPRECATED(int llama_eval(
-//         struct llama_context * ctx,
-//                  llama_token * tokens,
-//                      int32_t   n_tokens,
-//                          int   n_past),
-//         "use llama_decode() instead");
-
-// // Same as llama_eval, but use float matrix input directly.
-// // DEPRECATED: use llama_decode() instead
-// LLAMA_API DEPRECATED(int llama_eval_embd(
-//         struct llama_context * ctx,
-//                        float * embd,
-//                      int32_t   n_tokens,
-//                          int   n_past),
-//         "use llama_decode() instead");
 
 /// Decoding batch
 /// TODO: review which pointers are optional and one vs many
