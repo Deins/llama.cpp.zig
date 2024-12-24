@@ -1,46 +1,73 @@
 pub const c = @import("llama.h");
 pub const std = @import("std"); // mem.span and other utils
 // utilities
-pub const options = @import("llama_options");
+// pub const options = @import("llama_options");
 pub const utils = @import("utils.zig");
 pub const Tokenizer = utils.Tokenizer;
 pub const Detokenizer = utils.Detokenizer;
 
+// constants
+pub const default_seed: u32 = c.LLAMA_DEFAULT_SEED;
+pub const token_null: Token = c.LLAMA_TOKEN_NULL;
+
+pub const file_magic_ggla: u32 = c.LLAMA_FILE_MAGIC_GGLA; // 'ggla'
+pub const file_magic_ggsn: u32 = c.LLAMA_FILE_MAGIC_GGSN; // 'ggsn'
+pub const file_magic_ggsq: u32 = c.LLAMA_FILE_MAGIC_GGSQ; // 'ggsq'
+
+pub const session_magic = file_magic_ggsn;
+pub const session_version = c.LLAMA_SESSION_VERSION;
+
+pub const state_seq_magic = c.LLAMA_STATE_SEQ_MAGIC;
+pub const state_seq_version = c.LLAMA_STATE_SEQ_VERSION;
+
 //
 //  Actual llama.h bindings
 //
-
-//pub const Model = c.llama_model;
-//pub const Context = c.llama_context;
-
 pub const Pos = c.llama_pos;
 pub const Token = c.llama_token;
 pub const SeqId = c.llama_seq_id;
 
 pub const VocabType = c.llama_vocab_type;
-//pub const TokenType = c.llama_token_type;
+pub const VocabPreType = c.llama_vocab_pre_type;
+pub const RopeType = c.llama_rope_type;
+pub const TokenType = c.llama_token_type;
+pub const TokenAttr = c.llama_token_attr;
 pub const FType = c.llama_ftype;
 pub const RopeScalingType = c.llama_rope_scaling_type;
 pub const poolingType = c.llama_pooling_type;
-pub const splitMode = c.llama_split_mode;
+pub const AttentionType = c.llama_attention_type;
+pub const SplitMode = c.llama_split_mode;
 
 pub const TokenData = c.llama_token_data;
 pub const TokenDataArray = c.llama_token_data_array;
 pub const LlamaContext = c.llama_context;
 
-pub const ProgressCallback = c.llama_progress_callback;
+pub const ProgressCallback = c.llama_progress_callback; // fn type
 
-//pub const Batch = c.llama_batch;
 pub const ModelKvOverrideType = c.llama_model_kv_override_type;
 pub const ModelKvOverride = c.llama_model_kv_override;
 pub const ModelQuantizeParams = c.llama_model_quantize_params;
-//pub const Grammar = c.llama_grammar;
-pub const Gretpye = c.llama_gretype;
-pub const GrammarElement = c.llama_grammar_element;
 pub const PerfContextData = c.llama_perf_context_data;
+pub const PerfSamplerdata = c.llama_perf_sampler_data;
 
 pub const chatApplyTemplate = c.llama_chat_apply_template;
 pub const chatBuiltinTemplates = c.llama_chat_builtin_templates;
+
+pub const LogitBias = struct {
+    token: Token,
+    bias: f32,
+};
+
+pub const ChatMessage = struct {
+    role: [:0]const u8,
+    content: [:0]const u8,
+    pub fn toLLama(self: ChatMessage) c.llama_chat_message {
+        return .{
+            .role = self.role.ptr,
+            .content = self.content.ptr,
+        };
+    }
+};
 
 pub const SamplerContext = c.llama_sampler_context_t;
 pub const SamplerChainParams = c.llama_sampler_chain_params;
@@ -63,7 +90,115 @@ pub const Sampler = extern opaque {
     pub fn initGreedy() SamplerPtr {
         return @ptrCast(c.llama_sampler_init_greedy());
     }
-    // TODO: other samplers
+
+    pub fn initDist(seed: u32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_dist(seed));
+    }
+
+    /// @details Sorts candidate tokens by their logits in descending order and calculate probabilities based on logits.
+    /// NOTE: Avoid using on the full vocabulary as the sorting can become slow. For example, apply top-k or top-p sampling first.
+    pub fn initSoftmax() SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_softmax());
+    }
+
+    /// @details Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
+    pub fn initTopK(k: i32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_top_k(k));
+    }
+
+    /// @details Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
+    pub fn initTopP(p: f32, min_keep: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_top_p(p, min_keep));
+    }
+
+    /// @details Minimum P sampling as described in https://github.com/ggerganov/llama.cpp/pull/3841
+    pub fn initMinP(p: f32, min_keep: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_min_p(p, min_keep));
+    }
+
+    /// @details Locally Typical Sampling implementation described in the paper https://arxiv.org/abs/2202.00666.
+    pub fn initTypical(p: f32, min_keep: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_typical(p, min_keep));
+    }
+
+    /// #details Updates the logits l_i` = l_i/t. When t <= 0.0f, the maximum logit is kept at it's original value, the rest are set to -inf
+    pub fn initTemp(t: f32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_temp(t));
+    }
+
+    /// @details Dynamic temperature implementation (a.k.a. entropy) described in the paper https://arxiv.org/abs/2309.02772.
+    pub fn initTempExt(t: f32, delta: f32, exponent: f32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_temp_ext(t, delta, exponent));
+    }
+
+    /// @details XTC sampler as described in https://github.com/oobabooga/text-generation-webui/pull/6335
+    pub fn initXTC(p: f32, t: f32, min_keep: usize, seed: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_xtc(p, t, min_keep, seed));
+    }
+
+    /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
+    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
+    /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
+    /// @param m The number of tokens considered in the estimation of `s_hat`. This is an arbitrary value that is used to calculate `s_hat`, which in turn helps to calculate the value of `k`. In the paper, they use `m = 100`, but you can experiment with different values to see how it affects the performance of the algorithm.
+    /// @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal.
+    pub fn initMirostat(n_vocab: usize, seed: u32, tau: f32, eta: f32, m: i32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_mirostat(n_vocab, seed, tau, eta, m));
+    }
+
+    /// @details Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
+    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
+    /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
+    /// @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal.
+    pub fn initMirostatV2(n_vocab: usize, seed: u32, tau: f32, eta: f32, m: i32) SamplerPtr {
+        _ = n_vocab; // autofix
+        _ = m; // autofix
+        return @ptrCast(c.llama_sampler_init_mirostat_v2(seed, tau, eta));
+    }
+
+    pub fn initGrammar(model: *const Model, grammar_str: [:0]const u8, grammar_root: [:0]const u8) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_grammar(model, grammar_str, grammar_root));
+    }
+
+    /// NOTE: Avoid using on the full vocabulary as searching for repeated tokens can become slow. For example, apply top-k or top-p sampling first.
+    pub fn initPenalties(penalty_last_n: i32, penalty_repeat: f32, penalty_freq: f32, penalty_present: f32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_penalties(penalty_last_n, penalty_repeat, penalty_freq, penalty_present));
+    }
+
+    ///  @details DRY sampler, designed by p-e-w, as described in: https://github.com/oobabooga/text-generation-webui/pull/5677, porting Koboldcpp implementation authored by pi6am: https://github.com/LostRuins/koboldcpp/pull/982
+    pub fn initDry(model: *const Model, dry_multiplier: f32, dry_base: f32, dry_allowed_length: i32, dry_penalty_last_n: i32, seq_breakers: [*c]const [*c]const u8, num_breaker: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_dry(model, dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n, seq_breakers, num_breaker));
+    }
+
+    pub fn initLogitBias(n_vocab: i32, n_logit_bias: i32, logit_bias: [*]const LogitBias) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_logit_bias(n_vocab, n_logit_bias, logit_bias));
+    }
+
+    // this sampler is meant to be used for fill-in-the-middle infilling
+    // it's supposed to be used after top_k + top_p sampling
+    //
+    // 1. if the sum of the EOG probs times the number of candidates is higher than the sum of the other probs -> pick EOG
+    // 2. combine probs of tokens that have the same prefix
+    //
+    // example:
+    //
+    // - before:
+    //   "hel":   0.5
+    //   "hell":  0.2
+    //   "hello": 0.1
+    //   "dummy": 0.1
+    //
+    // - after:
+    //   "hel":   0.8
+    //   "dummy": 0.1
+    //
+    // 3. discard non-EOG tokens with low prob
+    // 4. if no tokens are left -> pick EOT
+    //
+    pub fn initInfill(model: *const Model) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_infill(model));
+    }
 
     // ========================================================================
     // Memeber functions:
@@ -114,7 +249,7 @@ pub const Sampler = extern opaque {
     }
 
     // perf
-    pub inline fn perf(self: SamplerPtr) PerfContextData {
+    pub inline fn perf(self: SamplerPtr) PerfSamplerdata {
         return c.llama_perf_sampler(@ptrCast(self));
     }
 
@@ -128,20 +263,6 @@ pub const Sampler = extern opaque {
 };
 
 // zigified opaque, structs, enums
-
-pub const TokenAttr = enum(c_int) {
-    LLAMA_TOKEN_ATTR_UNDEFINED = 0,
-    LLAMA_TOKEN_ATTR_UNKNOWN = 1 << 0,
-    LLAMA_TOKEN_ATTR_UNUSED = 1 << 1,
-    LLAMA_TOKEN_ATTR_NORMAL = 1 << 2,
-    LLAMA_TOKEN_ATTR_CONTROL = 1 << 3, // SPECIAL?
-    LLAMA_TOKEN_ATTR_USER_DEFINED = 1 << 4,
-    LLAMA_TOKEN_ATTR_BYTE = 1 << 5,
-    LLAMA_TOKEN_ATTR_NORMALIZED = 1 << 6,
-    LLAMA_TOKEN_ATTR_LSTRIP = 1 << 7,
-    LLAMA_TOKEN_ATTR_RSTRIP = 1 << 8,
-    LLAMA_TOKEN_ATTR_SINGLE_WORD = 1 << 9,
-};
 
 pub const Backend = opaque {
     // Initialize the llama + ggml backend
@@ -535,11 +656,6 @@ pub const Context = opaque {
         c.llama_sample_temp(self.cPtr(), candidates, temp);
     }
 
-    /// @details Apply constraints from grammar
-    pub inline fn sampleGrammar(self: *@This(), candidates: *TokenDataArray, grammar: *const Grammar) void {
-        c.llama_sample_grammar(self.cPtr(), candidates, @ptrCast(grammar));
-    }
-
     /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
     /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
     /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
@@ -568,11 +684,6 @@ pub const Context = opaque {
     /// @details Randomly selects a token from the candidates based on their probabilities.
     pub inline fn sampleToken(self: *@This(), candidates: *TokenDataArray) Token {
         return c.llama_sample_token(self.cPtr(), candidates);
-    }
-
-    /// @details Accepts the sampled token into the grammar
-    pub inline fn grammarAcceptToken(self: *@This(), grammar: *Grammar, tok: Token) void {
-        c.llama_grammar_accept_token(self.cPtr(), @ptrCast(grammar), tok);
     }
 
     // Get the embeddings for the ith sequence
@@ -669,10 +780,7 @@ comptime {
 
 // Helpers for getting default parameters
 pub const timeUs = c.llama_time_us;
-
 pub const maxDevices = c.llama_max_devices;
-pub const mmapSupported = c.llama_mmap_supported;
-pub const mlockSupported = c.llama_mlock_supported;
 
 //
 // Decoding
@@ -712,9 +820,8 @@ pub const Batch = extern struct {
     logits: [*]bool,
 
     // Return batch for single sequence of tokens starting at pos_0
-    //
     // NOTE: this is a helper function to facilitate transition to the new batch API - avoid using it
-    //
+    // WARNING: The slice must outlive the Batch.
     pub fn initOne(tokens: []Token) Batch {
         return @bitCast(c.llama_batch_get_one(tokens.ptr, @intCast(tokens.len)));
     }
@@ -766,51 +873,6 @@ comptime {
     if (@sizeOf(Batch) != @sizeOf(c.llama_batch)) unreachable;
 }
 
-//
-// Grammar
-//
-pub const Grammar = opaque {
-    pub fn init(rules: [][*]const GrammarElement, start_rule_index: usize) *Grammar {
-        return c.llama_grammar_init(rules.ptr, rules.len, start_rule_index);
-    }
-
-    pub fn deinit(self: @This()) void {
-        c.llama_grammar_free(self.cCPtr());
-    }
-
-    pub fn copy(self: @This()) *Grammar {
-        return c.llama_grammar_free(self.cCPtr());
-    }
-};
-
-//
-// Beam search
-//
-
-pub const BeamView = c.llama_beam_view;
-
-// Passed to beam_search_callback function.
-// Whenever 0 < common_prefix_length, this number of tokens should be copied from any of the beams
-// (e.g. beams[0]) as they will be removed (shifted) from all beams in all subsequent callbacks.
-// These pointers are valid only during the synchronous callback, so should not be saved.
-pub const BeamsState = c.llama_beams_state;
-
-// Type of pointer to the beam_search_callback function.
-// void* callback_data is any custom data passed to llama_beam_search, that is subsequently
-// passed back to beam_search_callback. This avoids having to use global variables in the callback.
-pub const BeamSearchCallback = *const fn (callback_data: ?*anyopaque, state: BeamsState) callconv(.C) void;
-
-/// @details Deterministically returns entire sentence constructed by a beam search.
-/// @param ctx Pointer to the llama_context.
-/// @param callback Invoked for each iteration of the beam_search loop, passing in beams_state.
-/// @param callback_data A pointer that is simply passed back to callback.
-/// @param n_beams Number of beams to use.
-/// @param n_past Number of tokens already evaluated.
-/// @param n_predict Maximum number of tokens to predict. EOS may occur earlier.
-pub fn beamSearch(ctx: *Context, callback: BeamSearchCallback, callback_data: ?*anyopaque, n_beams: usize, n_past: c_int, n_predict: c_int) void {
-    return c.llama_beam_search(ctx.cPtr(), callback, callback_data, n_beams, n_past, n_predict);
-}
-
 // Print system information
 pub const printSystemInfo = c.llama_print_system_info;
 
@@ -829,8 +891,6 @@ pub const LogCallback = *const fn (level: LogLevel, text: CStr, user_data: ?*any
 pub fn logSet(cb: ?LogCallback, user_data: ?*anyopaque) void {
     c.llama_log_set(@ptrCast(cb), user_data);
 }
-
-pub const dumpTimingInfoToYaml = c.llama_dump_timing_info_yaml;
 
 //
 // Unrelated utils

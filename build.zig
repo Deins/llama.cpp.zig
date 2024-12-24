@@ -33,8 +33,6 @@ pub const Context = struct {
     ggml_h_module: *Module,
 
     pub fn init(b: *std.Build, options: Options) Self {
-        var zop = b.addOptions();
-
         var llama_cpp = llama.Context.init(b, .{
             .target = options.target,
             .optimize = options.optimize,
@@ -51,10 +49,6 @@ pub const Context = struct {
             .{
                 .name = "ggml.h",
                 .module = ggml_h_module,
-            },
-            .{
-                .name = "llama_options",
-                .module = zop.createModule(),
             },
         };
         const mod = b.createModule(.{

@@ -40,6 +40,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     const cpu_threads = try std.Thread.getCpuCount(); // logical cpu cores
     cparams.n_threads = @intCast(args.threads orelse @min(cpu_threads, 4)); // for me: non batched doesn't scale above 3-4 cores
     cparams.n_threads_batch = @intCast(args.threads_batch orelse cpu_threads / 2); // for me without 2x hyperthreads per core works faster
+    cparams.no_perf = false;
 
     const ctx = try llama.Context.initWithModel(model, cparams);
     defer ctx.deinit();
@@ -70,21 +71,24 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
 
     var batch = llama.Batch.initOne(tokenizer.getTokens());
 
-    // generate response
-    for (0..args.max_gen) |_| {
-        try batch.decode(ctx);
-        const token = sampler.sample(ctx, -1);
-        if (llama.c.llama_token_is_eog(@ptrCast(model), token)) break;
-        // prepare the next batch with the sampled token
-        var token_arr: [1]Token = .{token};
-        batch = llama.Batch.initOne(token_arr[0..]);
+    { // generate response
+        var batch_token: [1]Token = undefined; // just to store not jet embeded batch token
+        for (0..args.max_gen) |_| {
+            try batch.decode(ctx);
+            const token = sampler.sample(ctx, -1);
+            if (llama.c.llama_token_is_eog(@ptrCast(model), token)) break;
+            // prepare the next batch with the sampled token
+            batch_token[0] = token;
+            batch = llama.Batch.initOne(batch_token[0..]);
 
-        // print
-        std.debug.print("{s}", .{try detokenizer.detokenize(model, token)});
-        detokenizer.clearRetainingCapacity();
+            // print
+            std.debug.print("{s}", .{try detokenizer.detokenize(model, token)});
+            detokenizer.clearRetainingCapacity();
+        }
+        std.debug.print("\n", .{});
     }
-    std.debug.print("\n", .{});
 
+    sampler.perfPrint();
     ctx.perfPrint();
 }
 
