@@ -5,14 +5,9 @@ llama.cpp bindings and utilities for zig. Currently targeting zig `0.13.x`.
 * Implements llama.h for nicer interaction with zig.
     * Removes prefixes, changes naming for functions to camelCase. Groups functions within most appropriete struct. etc.
     * Bindings partially depend on translate-c partially rewritten for ease of use.
-* (Deprecated, llama.cpp api now has this)~~Re-Implements some of the C++ that is not acessable through c api due to use of c++ std stuff:  [sampling.zig](./llama.cpp.zig/sampling.zig)~~
-
-* Implements some utilities such as:
+* utilities:
     * buffered Tokenizer & Detokenizer
-    * (deprecated due to api changes, need to be revisited) ~~prompt utility to simplify interaction with llama. (still wip) will support easly modifying prompt & regenerating it. Handling of out of context behaviour, etc. Possibly optional pagination/indexing of messages.~~
-    * (llama.cpp now has this, zig bindings need to be revisited)  ~~basic templated prompt generator, to try to manage different prompt formatting styles (chatML, alpaca, etc).~~
 
-Due to not keeping up with incremental llama.cpp api changes, not all bindings are in sync at the moment.  Use translate-c api directly for anything thats missing. 
 
 ## Example usage
 Clone: `git clone --recursive https://github.com/Deins/llama.cpp.zig.git`
