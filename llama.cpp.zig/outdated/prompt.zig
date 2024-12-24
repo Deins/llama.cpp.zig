@@ -1,6 +1,6 @@
 const std = @import("std");
 const llama = @import("llama.zig");
-const Sampling = llama.Sampling;
+//const Sampling = llama.Sampling;
 
 const Tokenizer = llama.utils.Tokenizer;
 
@@ -42,8 +42,9 @@ pub const ContextExtensionStrategy = union(enum(c_int)) {
 pub const Options = struct {
     model: *llama.Model,
     ctx: *llama.Context,
+    sampler: llama.SamplerChainPtr,
     batch_size: usize = 1024,
-    sampling_params: Sampling.Params = .{},
+    sampling_params: llama.SamplerChainParams = .{ .no_perf = true },
     n_seq_max: usize = 1,
     seq_id: SeqId = 0,
     ctx_extension: ContextExtensionStrategy = .{ .shifting = .{} },
@@ -51,9 +52,9 @@ pub const Options = struct {
 
 model: *llama.Model,
 ctx: *llama.Context,
+sampler: llama.SamplerChainPtr,
 batch: llama.Batch,
 batch_size: usize,
-sampling: Sampling,
 seq_id: SeqId = 0,
 ctx_extension: ContextExtensionStrategy,
 /// any time tokens or indexes are read/modified, this mutex has to be locked
@@ -69,8 +70,6 @@ ctx_used: usize = 0,
 accepted_idx: usize = 0,
 
 pub fn init(alloc: std.mem.Allocator, opt: Options) !Prompt {
-    var s = try Sampling.init(alloc, opt.sampling_params);
-    errdefer s.deinit();
     var t = try std.ArrayList(Token).initCapacity(alloc, opt.batch_size);
     errdefer t.deinit();
     return .{
@@ -78,7 +77,7 @@ pub fn init(alloc: std.mem.Allocator, opt: Options) !Prompt {
         .ctx = opt.ctx,
         .batch = llama.Batch.init(@intCast(opt.batch_size), 0, @intCast(opt.n_seq_max)),
         .batch_size = opt.batch_size,
-        .sampling = s,
+        .sampler = opt.sampler,
         .seq_id = opt.seq_id,
         .ctx_extension = opt.ctx_extension,
         .tokens = t,
@@ -87,7 +86,6 @@ pub fn init(alloc: std.mem.Allocator, opt: Options) !Prompt {
 
 pub fn deinit(self: *@This()) void {
     self.batch.deinit();
-    self.sampling.deinit();
     self.tokens.deinit();
 }
 
@@ -148,7 +146,7 @@ pub fn shrinkFront(self: *@This(), new_len: usize) void {
     std.debug.assert(new_len < self.tokens.items.len);
     const tokens = self.tokens.items;
     const diff = tokens.len - new_len;
-    self.ctx.kvCacheSeqRm(self.seq_id, @intCast(0), @intCast(new_len));
+    _ = self.ctx.kvCacheSeqRm(self.seq_id, @intCast(0), @intCast(new_len)); // TODO: error handling
     self.ctx.kvCacheSeqShift(self.seq_id, @intCast(new_len), @intCast(tokens.len), -@as(i32, @intCast(diff)));
     std.mem.copyForwards(Token, tokens[0..new_len], tokens[diff..]);
     self.embed_idx -|= diff;
@@ -180,7 +178,7 @@ pub fn ensureContextUnusedCapacty(self: *@This(), addtonal_count: usize) usize {
             const discard_n = left_n / 2;
             if (discard_n <= 0) return self.contextAvailable();
             std.log.scoped(.prompt).info("context shift: keep {}; left: {}; discard: {};", .{ keep, left_n, discard_n });
-            self.ctx.kvCacheSeqRm(self.seq_id, @intCast(keep), @intCast(keep + discard_n));
+            _ = self.ctx.kvCacheSeqRm(self.seq_id, @intCast(keep), @intCast(keep + discard_n)); // TODO: error handling
             self.ctx.kvCacheSeqShift(self.seq_id, @intCast(keep + discard_n), @intCast(self.ctx_used), -@as(i32, @intCast(discard_n)));
             self.ctx_used -= discard_n;
             // regenerate logits for last token
@@ -258,11 +256,11 @@ pub fn generateAppendOne(self: *@This()) !Token {
 
     self.tokens_mutex.lock();
     // update sampler with tokens that might have been added if any
-    for (self.accepted_idx..self.tokens.items.len) |ai| self.sampling.accept(self.ctx, self.tokens.items[ai], false);
+    for (self.accepted_idx..self.tokens.items.len) |ai| self.sampler.accept(self.tokens.items[ai]);
     self.accepted_idx = self.tokens.items.len;
 
     // sample for next token
-    const new_token = try self.sampling.sample(self.ctx, null, self.batch.n_tokens - 1);
+    const new_token = self.sampler.sample(self.ctx, self.batch.n_tokens - 1);
     self.tokens_mutex.unlock();
     try self.addOneToken(new_token);
     return new_token;

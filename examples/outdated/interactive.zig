@@ -34,7 +34,7 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     defer model.deinit();
 
     var cparams = Context.defaultParams();
-    cparams.seed = args.seed orelse 1234;
+    //cparams.seed = args.seed orelse 1234;
     const n_ctx_train = model.nCtxTrain();
     const n_ctx = n_ctx_train * 2;
     cparams.n_ctx = @intCast(n_ctx_train);

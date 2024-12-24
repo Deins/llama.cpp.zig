@@ -1,59 +1,267 @@
 pub const c = @import("llama.h");
 pub const std = @import("std"); // mem.span and other utils
 // utilities
-pub const options = @import("llama_options");
-pub const Prompt = @import("prompt.zig");
-pub const Sampling = @import("sampling.zig");
+// pub const options = @import("llama_options");
 pub const utils = @import("utils.zig");
 pub const Tokenizer = utils.Tokenizer;
 pub const Detokenizer = utils.Detokenizer;
 
-pub const opencl_utils = if (options.opencl) @import("opencl_utils.zig");
+// constants
+pub const default_seed: u32 = c.LLAMA_DEFAULT_SEED;
+pub const token_null: Token = c.LLAMA_TOKEN_NULL;
+
+pub const file_magic_ggla: u32 = c.LLAMA_FILE_MAGIC_GGLA; // 'ggla'
+pub const file_magic_ggsn: u32 = c.LLAMA_FILE_MAGIC_GGSN; // 'ggsn'
+pub const file_magic_ggsq: u32 = c.LLAMA_FILE_MAGIC_GGSQ; // 'ggsq'
+
+pub const session_magic = file_magic_ggsn;
+pub const session_version = c.LLAMA_SESSION_VERSION;
+
+pub const state_seq_magic = c.LLAMA_STATE_SEQ_MAGIC;
+pub const state_seq_version = c.LLAMA_STATE_SEQ_VERSION;
 
 //
 //  Actual llama.h bindings
 //
-
-//pub const Model = c.llama_model;
-//pub const Context = c.llama_context;
-
 pub const Pos = c.llama_pos;
 pub const Token = c.llama_token;
 pub const SeqId = c.llama_seq_id;
 
-pub const VocabType = c.llama_vocab_type;
-//pub const TokenType = c.llama_token_type;
+pub const VocabType = c.enum_llama_vocab_type;
+pub const VocabPreType = c.llama_vocab_pre_type;
+pub const RopeType = c.enum_llama_rope_type;
+pub const TokenType = c.llama_token_type;
+pub const TokenAttr = c.llama_token_attr;
 pub const FType = c.llama_ftype;
 pub const RopeScalingType = c.llama_rope_scaling_type;
-pub const poolingType = c.llama_pooling_type;
-pub const splitMode = c.llama_split_mode;
+pub const AttentionType = c.llama_attention_type;
+pub const SplitMode = c.llama_split_mode;
 
 pub const TokenData = c.llama_token_data;
 pub const TokenDataArray = c.llama_token_data_array;
 pub const LlamaContext = c.llama_context;
 
-pub const ProgressCallback = c.llama_progress_callback;
+pub const ProgressCallback = c.llama_progress_callback; // fn type
 
-//pub const Batch = c.llama_batch;
 pub const ModelKvOverrideType = c.llama_model_kv_override_type;
 pub const ModelKvOverride = c.llama_model_kv_override;
 pub const ModelQuantizeParams = c.llama_model_quantize_params;
-//pub const Grammar = c.llama_grammar;
-pub const Gretpye = c.llama_gretype;
-pub const GrammarElement = c.llama_grammar_element;
-pub const Timings = c.llama_timings;
+pub const PerfContextData = c.llama_perf_context_data;
+pub const PerfSamplerdata = c.llama_perf_sampler_data;
+
+pub const chatApplyTemplate = c.llama_chat_apply_template;
+pub const chatBuiltinTemplates = c.llama_chat_builtin_templates;
+
+pub const LogitBias = struct {
+    token: Token,
+    bias: f32,
+};
+
+pub const ChatMessage = struct {
+    role: [:0]const u8,
+    content: [:0]const u8,
+    pub fn toLLama(self: ChatMessage) c.llama_chat_message {
+        return .{
+            .role = self.role.ptr,
+            .content = self.content.ptr,
+        };
+    }
+};
+
+pub const SamplerContext = c.llama_sampler_context_t;
+pub const SamplerChainParams = c.llama_sampler_chain_params;
+
+pub const SamplerPtr = *align(@alignOf(c.llama_sampler)) Sampler;
+pub const Sampler = extern opaque {
+    // ========================================================================
+    // Sampler chain
+    // ========================================================================
+    pub fn initChain(p: SamplerChainParams) SamplerPtr {
+        return @ptrCast(c.llama_sampler_chain_init(p));
+    }
+    pub fn initChainDefault() SamplerPtr {
+        return initChain(c.llama_sampler_chain_default_params());
+    }
+
+    // ========================================================================
+    // Samplers
+    // ========================================================================
+    pub fn initGreedy() SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_greedy());
+    }
+
+    pub fn initDist(seed: u32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_dist(seed));
+    }
+
+    /// @details Sorts candidate tokens by their logits in descending order and calculate probabilities based on logits.
+    /// NOTE: Avoid using on the full vocabulary as the sorting can become slow. For example, apply top-k or top-p sampling first.
+    pub fn initSoftmax() SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_softmax());
+    }
+
+    /// @details Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
+    pub fn initTopK(k: i32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_top_k(k));
+    }
+
+    /// @details Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
+    pub fn initTopP(p: f32, min_keep: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_top_p(p, min_keep));
+    }
+
+    /// @details Minimum P sampling as described in https://github.com/ggerganov/llama.cpp/pull/3841
+    pub fn initMinP(p: f32, min_keep: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_min_p(p, min_keep));
+    }
+
+    /// @details Locally Typical Sampling implementation described in the paper https://arxiv.org/abs/2202.00666.
+    pub fn initTypical(p: f32, min_keep: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_typical(p, min_keep));
+    }
+
+    /// #details Updates the logits l_i` = l_i/t. When t <= 0.0f, the maximum logit is kept at it's original value, the rest are set to -inf
+    pub fn initTemp(t: f32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_temp(t));
+    }
+
+    /// @details Dynamic temperature implementation (a.k.a. entropy) described in the paper https://arxiv.org/abs/2309.02772.
+    pub fn initTempExt(t: f32, delta: f32, exponent: f32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_temp_ext(t, delta, exponent));
+    }
+
+    /// @details XTC sampler as described in https://github.com/oobabooga/text-generation-webui/pull/6335
+    pub fn initXTC(p: f32, t: f32, min_keep: usize, seed: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_xtc(p, t, min_keep, seed));
+    }
+
+    /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
+    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
+    /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
+    /// @param m The number of tokens considered in the estimation of `s_hat`. This is an arbitrary value that is used to calculate `s_hat`, which in turn helps to calculate the value of `k`. In the paper, they use `m = 100`, but you can experiment with different values to see how it affects the performance of the algorithm.
+    /// @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal.
+    pub fn initMirostat(n_vocab: usize, seed: u32, tau: f32, eta: f32, m: i32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_mirostat(n_vocab, seed, tau, eta, m));
+    }
+
+    /// @details Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
+    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
+    /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
+    /// @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal.
+    pub fn initMirostatV2(n_vocab: usize, seed: u32, tau: f32, eta: f32, m: i32) SamplerPtr {
+        _ = n_vocab; // autofix
+        _ = m; // autofix
+        return @ptrCast(c.llama_sampler_init_mirostat_v2(seed, tau, eta));
+    }
+
+    pub fn initGrammar(model: *const Model, grammar_str: [:0]const u8, grammar_root: [:0]const u8) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_grammar(model, grammar_str, grammar_root));
+    }
+
+    /// NOTE: Avoid using on the full vocabulary as searching for repeated tokens can become slow. For example, apply top-k or top-p sampling first.
+    pub fn initPenalties(penalty_last_n: i32, penalty_repeat: f32, penalty_freq: f32, penalty_present: f32) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_penalties(penalty_last_n, penalty_repeat, penalty_freq, penalty_present));
+    }
+
+    ///  @details DRY sampler, designed by p-e-w, as described in: https://github.com/oobabooga/text-generation-webui/pull/5677, porting Koboldcpp implementation authored by pi6am: https://github.com/LostRuins/koboldcpp/pull/982
+    pub fn initDry(model: *const Model, dry_multiplier: f32, dry_base: f32, dry_allowed_length: i32, dry_penalty_last_n: i32, seq_breakers: [*c]const [*c]const u8, num_breaker: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_dry(model, dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n, seq_breakers, num_breaker));
+    }
+
+    pub fn initLogitBias(n_vocab: i32, n_logit_bias: i32, logit_bias: [*]const LogitBias) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_logit_bias(n_vocab, n_logit_bias, logit_bias));
+    }
+
+    // this sampler is meant to be used for fill-in-the-middle infilling
+    // it's supposed to be used after top_k + top_p sampling
+    //
+    // 1. if the sum of the EOG probs times the number of candidates is higher than the sum of the other probs -> pick EOG
+    // 2. combine probs of tokens that have the same prefix
+    //
+    // example:
+    //
+    // - before:
+    //   "hel":   0.5
+    //   "hell":  0.2
+    //   "hello": 0.1
+    //   "dummy": 0.1
+    //
+    // - after:
+    //   "hel":   0.8
+    //   "dummy": 0.1
+    //
+    // 3. discard non-EOG tokens with low prob
+    // 4. if no tokens are left -> pick EOT
+    //
+    pub fn initInfill(model: *const Model) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_infill(model));
+    }
+
+    // ========================================================================
+    // Memeber functions:
+    // ========================================================================
+    pub fn deinit(self: SamplerPtr) void {
+        c.llama_sampler_free(@ptrCast(self));
+    }
+
+    pub fn name(self: SamplerPtr) CStr {
+        return c.llama_sampler_name(@ptrCast(self));
+    }
+
+    pub fn accept(self: SamplerPtr, tok: Token) void {
+        c.llama_sampler_accept(@ptrCast(self), tok);
+    }
+
+    pub fn apply(self: SamplerPtr, tok_data: *TokenDataArray) void {
+        c.llama_sampler_apply(@ptrCast(self), tok_data);
+    }
+
+    pub fn reset(self: SamplerPtr) void {
+        c.llama_sampler_reset(@ptrCast(self));
+    }
+
+    pub fn clone(self: SamplerPtr) Sampler {
+        return @ptrCast(c.llama_sampler_clone(@ptrCast(self)));
+    }
+
+    pub fn add(self: SamplerPtr, other: SamplerPtr) void {
+        return c.llama_sampler_chain_add(@ptrCast(self), @ptrCast(other));
+    }
+
+    pub fn get(self: SamplerPtr, i: i32) void {
+        return c.llama_sampler_get(@ptrCast(self), i);
+    }
+
+    // llama_sampler_chain_n
+    pub fn n(self: SamplerPtr) i32 {
+        return c.llama_sampler_chain_n(@ptrCast(self));
+    }
+
+    pub fn remove(self: SamplerPtr, i: i32) Sampler {
+        return @ptrCast(c.llama_sampler_chain_remove(@ptrCast(self), i));
+    }
+
+    pub fn sample(self: SamplerPtr, ctx: *Context, idx: i32) Token {
+        return c.llama_sampler_sample(@ptrCast(self), @ptrCast(ctx), idx);
+    }
+
+    // perf
+    pub inline fn perf(self: SamplerPtr) PerfSamplerdata {
+        return c.llama_perf_sampler(@ptrCast(self));
+    }
+
+    pub inline fn perfPrint(self: SamplerPtr) void {
+        c.llama_perf_sampler_print(@ptrCast(self));
+    }
+
+    pub inline fn perfReset(self: SamplerPtr) void {
+        c.llama_perf_sampler_reset(@ptrCast(self));
+    }
+};
 
 // zigified opaque, structs, enums
-
-pub const TokenType = enum(c_int) {
-    LLAMA_TOKEN_TYPE_UNDEFINED = 0,
-    LLAMA_TOKEN_TYPE_NORMAL = 1,
-    LLAMA_TOKEN_TYPE_UNKNOWN = 2,
-    LLAMA_TOKEN_TYPE_CONTROL = 3,
-    LLAMA_TOKEN_TYPE_USER_DEFINED = 4,
-    LLAMA_TOKEN_TYPE_UNUSED = 5,
-    LLAMA_TOKEN_TYPE_BYTE = 6,
-};
 
 pub const Backend = opaque {
     // Initialize the llama + ggml backend
@@ -97,6 +305,15 @@ pub const Model = extern opaque {
     }
     pub inline fn nEmbd(self: *const @This()) i32 {
         return (c.llama_n_embd(self.cCPtr()));
+    }
+    pub inline fn nLayer(self: *const @This()) i32 {
+        return (c.llama_n_layer(self.cCPtr()));
+    }
+    pub inline fn nHead(self: *const @This()) i32 {
+        return (c.llama_n_head(self.cCPtr()));
+    }
+    pub inline fn ropeType(self: *const @This()) RopeType {
+        return c.llama_rope_type(self.cCPtr());
     }
     // Get the model's RoPE frequency scaling factor
     pub inline fn ropeFreqScaleTrain(self: *const @This()) f32 {
@@ -152,6 +369,24 @@ pub const Model = extern opaque {
         return c.llama_get_model_tensor(self.cCPtr(), name);
     }
 
+    pub inline fn hasEncoder(model: *const @This()) bool {
+        return c.llama_model_has_encoder(model.cCPtr());
+    }
+
+    pub inline fn hasDecoder(model: *const @This()) bool {
+        return c.llama_model_has_decoder(model.cCPtr());
+    }
+
+    // For encoder-decoder models, this function returns id of the token that must be provided
+    // to the decoder to start generating output sequence. For other models, it returns -1.
+    pub inline fn decoderStartToken(model: *const @This()) Token {
+        return c.llama_model_decoder_start_token(model.cCPtr());
+    }
+
+    pub inline fn isReccurent(model: *const @This()) bool {
+        return c.llama_model_is_recurrent(model.cCPtr());
+    }
+
     pub inline fn modelQuantize(self: *const @This(), fname_input: CStr, fname_output: CStr, params: ModelQuantizeParams) !void {
         return if (c.llama_model_quantize(self.cCPtr(), fname_input, fname_output, params) == 0) void else error.ERROR;
     }
@@ -178,8 +413,8 @@ pub const Model = extern opaque {
     pub inline fn tokenGetScore(self: *const @This(), token: Token) f32 {
         return c.llama_token_get_score(self.cCPtr(), token);
     }
-    pub inline fn tokenGetType(self: *const @This(), token: Token) TokenType {
-        return @enumFromInt(c.llama_token_get_type(self.cCPtr(), token));
+    pub inline fn tokenGetAttr(self: *const @This(), token: Token) TokenAttr {
+        return @enumFromInt(c.llama_token_get_attr(self.cCPtr(), token));
     }
 
     // Special tokens
@@ -240,11 +475,44 @@ pub const Model = extern opaque {
     // Does not write null terminator to the buffer.
     // User code is responsible to remove the leading whitespace of the first non-BOS token when decoding multiple tokens.
     pub inline fn tokenToPiece(self: *const @This(), token: Token, out_text: []u8) i32 {
-        return c.llama_token_to_piece(self.cCPtr(), token, out_text.ptr, @intCast(out_text.len));
+        const special = true;
+        return c.llama_token_to_piece(self.cCPtr(), token, out_text.ptr, @intCast(out_text.len), 0, special);
     }
 
     pub inline fn cCPtr(self: *const Model) *const c.llama_model {
         return @ptrCast(self);
+    }
+};
+
+pub const LoraAdapterPtr = *align(@alignOf(c.llama_lora_adapter)) LoraAdapter;
+pub const LoraAdapter = opaque {
+    // Load a LoRA adapter from file
+    // The loaded adapter will be associated to the given model, and will be free when the model is deleted
+    pub fn initAdapter(model: *Model, path: [:0]const u8) LoraAdapterPtr {
+        return c.llama_lora_adapter_init(model, path.ptr);
+    }
+
+    // Add a loaded LoRA adapter to given context
+    // This will not modify model's weight
+    pub fn set(ctx: *Context, adapter: LoraAdapterPtr, scale: f32) i32 {
+        return c.llama_lora_adapter_set(ctx, adapter, scale);
+    }
+
+    // Remove a specific LoRA adapter from given context
+    // Return -1 if the adapter is not present in the context
+    pub fn remove(adapter: LoraAdapterPtr, ctx: *Context) i32 {
+        return c.llama_lora_adapter_remove(ctx, adapter);
+    }
+
+    // Remove all LoRA adapters from given context
+    pub fn clear(ctx: *Context) i32 {
+        return c.llama_lora_adapter_remove(ctx);
+    }
+
+    // Manually free a LoRA adapter
+    // Note: loaded adapters will be free when the associated model is deleted
+    pub fn deinit(self: LoraAdapterPtr) void {
+        c.llama_lora_adapter_free(self);
     }
 };
 
@@ -271,6 +539,18 @@ pub const Context = opaque {
 
     pub inline fn nBatch(self: *const @This()) u32 {
         return c.llama_n_batch(self.cCPtr());
+    }
+
+    pub inline fn nUBatch(self: *const @This()) u32 {
+        return c.llama_n_ubatch(self.cCPtr());
+    }
+
+    pub inline fn nSeqMax(self: *const @This()) u32 {
+        return c.llama_n_seq_max(self.cCPtr());
+    }
+
+    pub inline fn poolingType(self: *const @This()) u32 {
+        return c.llama_pooling_type(self.cCPtr());
     }
 
     //
@@ -305,7 +585,7 @@ pub const Context = opaque {
     /// seq_id < 0 : match any sequence
     /// p0 < 0     : [0,  p1]
     /// p1 < 0     : [p0, inf)
-    pub inline fn kvCacheSeqRm(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos) void {
+    pub inline fn kvCacheSeqRm(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos) bool {
         return c.llama_kv_cache_seq_rm(self.cPtr(), seq_id, p0, p1);
     }
 
@@ -320,14 +600,6 @@ pub const Context = opaque {
     /// Removes all tokens that do not belong to the specified sequence
     pub inline fn kvCacheSeqKeep(self: *@This(), seq_id: SeqId) void {
         return c.llama_kv_cache_seq_keep(self.cPtr(), seq_id);
-    }
-
-    /// Adds relative position "delta" to all tokens that belong to the specified sequence and have positions in [p0, p1)
-    /// If the KV cache is RoPEd, the KV data is updated accordingly
-    /// p0 < 0 : [0,  p1]
-    /// p1 < 0 : [p0, inf)
-    pub inline fn kvCacheSeqShift(self: *@This(), seq_id: SeqId, p0: Pos, p1: Pos, delta: Pos) void {
-        return c.llama_kv_cache_seq_shift(self.cPtr(), seq_id, p0, p1, delta);
     }
 
     //
@@ -397,18 +669,6 @@ pub const Context = opaque {
         return c.llama_get_embeddings(self.cPtr());
     }
 
-    // Performance information
-    pub inline fn getTimings(self: *const Context) Timings {
-        return c.llama_get_timings(self.cCPtr());
-    }
-
-    pub inline fn printTimings(self: *Context) void {
-        c.llama_print_timings(self.cPtr());
-    }
-    pub inline fn resetTimings(self: *Context) void {
-        c.llama_reset_timings(self.cPtr());
-    }
-
     //
     // Sampling functions
     //
@@ -428,9 +688,9 @@ pub const Context = opaque {
     /// @param candidates A vector of `llama_token_data` containing the candidate tokens, the logits must be directly extracted from the original generation context without being sorted.
     /// @params guidance_ctx A separate context from the same model. Other than a negative prompt at the beginning, it should have all generated and user input tokens copied from the main context.
     /// @params scale Guidance strength. 1.0f means no guidance. Higher values mean stronger guidance.
-    pub inline fn sampleClassifierFreeGuidance(self: *@This(), candidates: *TokenDataArray, guidance_ctx: *Context, scale: f32) void {
-        c.llama_sample_classifier_free_guidance(self.cPtr(), candidates, guidance_ctx.cPtr(), scale);
-    }
+    // pub inline fn sampleClassifierFreeGuidance(self: *@This(), candidates: *TokenDataArray, guidance_ctx: *Context, scale: f32) void {
+    //     c.llama_sample_classifier_free_guidance(self.cPtr(), candidates, guidance_ctx.cPtr(), scale);
+    // }
 
     /// @details Sorts candidate tokens by their logits in descending order and calculate probabilities based on logits.
     pub inline fn sampleSoftmax(self: *@This(), candidates: *TokenDataArray) void {
@@ -466,11 +726,6 @@ pub const Context = opaque {
         c.llama_sample_temp(self.cPtr(), candidates, temp);
     }
 
-    /// @details Apply constraints from grammar
-    pub inline fn sampleGrammar(self: *@This(), candidates: *TokenDataArray, grammar: *const Grammar) void {
-        c.llama_sample_grammar(self.cPtr(), candidates, @ptrCast(grammar));
-    }
-
     /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
     /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
     /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
@@ -501,11 +756,6 @@ pub const Context = opaque {
         return c.llama_sample_token(self.cPtr(), candidates);
     }
 
-    /// @details Accepts the sampled token into the grammar
-    pub inline fn grammarAcceptToken(self: *@This(), grammar: *Grammar, tok: Token) void {
-        c.llama_grammar_accept_token(self.cPtr(), @ptrCast(grammar), tok);
-    }
-
     // Get the embeddings for the ith sequence
     // llama_get_embeddings(ctx) + i*n_embd
     pub inline fn getEmbeddingsIth(self: *Context, i: i32) [*]f32 {
@@ -520,6 +770,25 @@ pub const Context = opaque {
 
     pub inline fn cPtr(self: *Context) *c.llama_context {
         return @ptrCast(self);
+    }
+
+    pub inline fn perf(self: *Context) PerfContextData {
+        return c.llama_perf_context(@ptrCast(self));
+    }
+
+    pub inline fn perfPrint(self: *Context) void {
+        c.llama_perf_context_print(@ptrCast(self));
+    }
+
+    pub inline fn perfReset(self: *Context) void {
+        c.llama_perf_context_reset(@ptrCast(self));
+    }
+
+    pub inline fn attachThreadPool(self: *Context, threadpool: c.ggml_threadpool_t, threadpool_batch: c.ggml_threadpool_t) void {
+        c.llama_attach_threadpool(@ptrCast(self), threadpool, threadpool_batch);
+    }
+    pub inline fn deatachThreadPool(self: *Context) void {
+        c.llama_detach_threadpool(@ptrCast(self));
     }
 };
 
@@ -588,35 +857,15 @@ comptime {
 
 // Helpers for getting default parameters
 pub const timeUs = c.llama_time_us;
-
 pub const maxDevices = c.llama_max_devices;
-pub const mmapSupported = c.llama_mmap_supported;
-pub const mlockSupported = c.llama_mlock_supported;
+pub const supportsMmap = c.llama_supports_mmap;
+pub const supportsMlock = c.llama_supports_mlock;
+pub const supportsGpu_offload = c.llama_supports_gpu_offload;
+pub const supportsRpc = c.llama_supports_rpc;
 
 //
 // Decoding
 //
-
-// Run the llama inference to obtain the logits and probabilities for the next token(s).
-// tokens + n_tokens is the provided batch of new tokens to process
-// n_past is the number of tokens to use from previous eval calls
-// Returns 0 on success
-// DEPRECATED: use llama_decode() instead
-// LLAMA_API DEPRECATED(int llama_eval(
-//         struct llama_context * ctx,
-//                  llama_token * tokens,
-//                      int32_t   n_tokens,
-//                          int   n_past),
-//         "use llama_decode() instead");
-
-// // Same as llama_eval, but use float matrix input directly.
-// // DEPRECATED: use llama_decode() instead
-// LLAMA_API DEPRECATED(int llama_eval_embd(
-//         struct llama_context * ctx,
-//                        float * embd,
-//                      int32_t   n_tokens,
-//                          int   n_past),
-//         "use llama_decode() instead");
 
 /// Decoding batch
 /// TODO: review which pointers are optional and one vs many
@@ -630,21 +879,11 @@ pub const Batch = extern struct {
     seq_id: [*][*]SeqId,
     logits: [*]bool,
 
-    // NOTE: helpers for smooth API transition - can be deprecated in the future
-    //       for future-proof code, use the above fields instead and ignore everything below
-    //
-    // pos[i] = all_pos_0 + i*all_pos_1
-    //
-    all_pos_0: Pos, // used if pos == NULL
-    llama_pos: Pos, // used if pos == NULL
-    all_seq_id: SeqId, // used if seq_id == NULL
-
     // Return batch for single sequence of tokens starting at pos_0
-    //
     // NOTE: this is a helper function to facilitate transition to the new batch API - avoid using it
-    //
-    pub fn initOne(tokens: []Token, pos_0: Pos, seq_id: SeqId) Batch {
-        return @bitCast(c.llama_batch_get_one(tokens.ptr, @intCast(tokens.len), pos_0, seq_id));
+    // WARNING: The slice must outlive the Batch.
+    pub fn initOne(tokens: []Token) Batch {
+        return @bitCast(c.llama_batch_get_one(tokens.ptr, @intCast(tokens.len)));
     }
 
     /// Allocates a batch of tokens on the heap that can hold a maximum of n_tokens
@@ -694,67 +933,24 @@ comptime {
     if (@sizeOf(Batch) != @sizeOf(c.llama_batch)) unreachable;
 }
 
-//
-// Grammar
-//
-pub const Grammar = opaque {
-    pub fn init(rules: [][*]const GrammarElement, start_rule_index: usize) *Grammar {
-        return c.llama_grammar_init(rules.ptr, rules.len, start_rule_index);
-    }
-
-    pub fn deinit(self: @This()) void {
-        c.llama_grammar_free(self.cCPtr());
-    }
-
-    pub fn copy(self: @This()) *Grammar {
-        return c.llama_grammar_free(self.cCPtr());
-    }
-};
-
-//
-// Beam search
-//
-
-pub const BeamView = c.llama_beam_view;
-
-// Passed to beam_search_callback function.
-// Whenever 0 < common_prefix_length, this number of tokens should be copied from any of the beams
-// (e.g. beams[0]) as they will be removed (shifted) from all beams in all subsequent callbacks.
-// These pointers are valid only during the synchronous callback, so should not be saved.
-pub const BeamsState = c.llama_beams_state;
-
-// Type of pointer to the beam_search_callback function.
-// void* callback_data is any custom data passed to llama_beam_search, that is subsequently
-// passed back to beam_search_callback. This avoids having to use global variables in the callback.
-pub const BeamSearchCallback = *const fn (callback_data: ?*anyopaque, state: BeamsState) callconv(.C) void;
-
-/// @details Deterministically returns entire sentence constructed by a beam search.
-/// @param ctx Pointer to the llama_context.
-/// @param callback Invoked for each iteration of the beam_search loop, passing in beams_state.
-/// @param callback_data A pointer that is simply passed back to callback.
-/// @param n_beams Number of beams to use.
-/// @param n_past Number of tokens already evaluated.
-/// @param n_predict Maximum number of tokens to predict. EOS may occur earlier.
-pub fn beamSearch(ctx: *Context, callback: BeamSearchCallback, callback_data: ?*anyopaque, n_beams: usize, n_past: c_int, n_predict: c_int) void {
-    return c.llama_beam_search(ctx.cPtr(), callback, callback_data, n_beams, n_past, n_predict);
-}
-
 // Print system information
 pub const printSystemInfo = c.llama_print_system_info;
 
 // Set callback for all future logging events.
 // If this is not called, or NULL is supplied, everything is output on stderr.
 pub const LogLevel = enum(c_int) {
-    Error = 2, // GGML_LOG_LEVEL_ERROR = 2,
-    Warn = 3, // GGML_LOG_LEVEL_WARN = 3,
-    Info = 4, // GGML_LOG_LEVEL_INFO = 4
+    NONE = 0,
+    DEBUG = 1,
+    INFO = 2,
+    WARN = 3,
+    ERROR = 4,
+    CONT = 5, // continue previous log
 };
 pub const LogCallback = *const fn (level: LogLevel, text: CStr, user_data: ?*anyopaque) callconv(.C) void;
+
 pub fn logSet(cb: ?LogCallback, user_data: ?*anyopaque) void {
     c.llama_log_set(@ptrCast(cb), user_data);
 }
-
-pub const dumpTimingInfoToYaml = c.llama_dump_timing_info_yaml;
 
 //
 // Unrelated utils
