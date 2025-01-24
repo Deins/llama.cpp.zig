@@ -168,6 +168,7 @@ pub const Context = struct {
             ctx.path(&.{ "ggml", "src", "ggml-quants.c" }),
             ctx.path(&.{ "ggml", "src", "ggml-threading.cpp" }),
             ctx.path(&.{ "ggml", "src", "ggml.c" }),
+            ctx.path(&.{ "ggml", "src", "gguf.cpp" }),
         }) catch unreachable;
 
         if (ctx.options.backends.cpu) {
@@ -193,11 +194,22 @@ pub const Context = struct {
     pub fn addLLama(ctx: *Context, compile: *CompileStep) void {
         ctx.common(compile);
         compile.addIncludePath(ctx.path(&.{"include"}));
-        compile.addCSourceFile(.{ .file = ctx.srcPath("llama.cpp"), .flags = ctx.flags() });
-        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-vocab.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-adapter.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-arch.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-batch.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-chat.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-context.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.srcPath("llama-grammar.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-hparams.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-impl.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-kv-cache.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-mmap.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-model-loader.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-model.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.srcPath("llama-sampling.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.srcPath("llama-vocab.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama-vocab.cpp"), .flags = ctx.flags() });
+        compile.addCSourceFile(.{ .file = ctx.srcPath("llama.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.srcPath("llama.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.srcPath("unicode-data.cpp"), .flags = ctx.flags() });
         compile.addCSourceFile(.{ .file = ctx.srcPath("unicode.cpp"), .flags = ctx.flags() });

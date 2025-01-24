@@ -59,13 +59,14 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
     // try prompt.appendText(args.prompt orelse @panic("--prompt argument is required"), true);
     // const initial_prompt_len = prompt.tokens.items.len;
 
+    const vocab = model.vocab() orelse @panic("model missin vocab!");
     var tokenizer = llama.Tokenizer.init(alloc);
     defer tokenizer.deinit();
-    try tokenizer.tokenize(model, args.prompt orelse "My name is ", false, true);
+    try tokenizer.tokenize(vocab, args.prompt orelse "My name is ", false, true);
 
     var detokenizer = llama.Detokenizer.init(alloc);
     defer detokenizer.deinit();
-    for (tokenizer.getTokens()) |tok| _ = try detokenizer.detokenize(model, tok);
+    for (tokenizer.getTokens()) |tok| _ = try detokenizer.detokenize(vocab, tok);
     std.debug.print("PROMPT:\n{s}", .{detokenizer.getText()});
     detokenizer.clearRetainingCapacity();
 
@@ -76,13 +77,13 @@ pub fn run(alloc: std.mem.Allocator, args: Args) !void {
         for (0..args.max_gen) |_| {
             try batch.decode(ctx);
             const token = sampler.sample(ctx, -1);
-            if (llama.c.llama_token_is_eog(@ptrCast(model), token)) break;
+            if (vocab.isEog(token)) break;
             // prepare the next batch with the sampled token
             batch_token[0] = token;
             batch = llama.Batch.initOne(batch_token[0..]);
 
             // print
-            std.debug.print("{s}", .{try detokenizer.detokenize(model, token)});
+            std.debug.print("{s}", .{try detokenizer.detokenize(vocab, token)});
             detokenizer.clearRetainingCapacity();
         }
         std.debug.print("\n", .{});

@@ -38,12 +38,12 @@ pub const Tokenizer = struct {
     }
 
     /// tokenize more text
-    pub fn tokenize(self: *@This(), model: *llama.Model, text: []const u8, add_bos: bool, special: bool) !void {
+    pub fn tokenize(self: *@This(), vocab: *const llama.Vocab, text: []const u8, add_bos: bool, special: bool) !void {
         try self.data.ensureUnusedCapacity(text.len / 3 + 8); // assume that token on average is ~3 chars long
-        var size = model.tokenize(text, self.data.unusedCapacitySlice(), add_bos, special);
+        var size = vocab.tokenize(text, self.data.unusedCapacitySlice(), add_bos, special);
         if (size < 0) {
             try self.data.ensureUnusedCapacity(@intCast(-size));
-            size = model.tokenize(text, self.data.unusedCapacitySlice(), add_bos, special);
+            size = vocab.tokenize(text, self.data.unusedCapacitySlice(), add_bos, special);
             if (size < 0) @panic("unexpected tokenization error"); // TODO: switch to unreachable once sure it works
         }
         self.data.items = self.data.allocatedSlice()[0 .. self.data.items.len + @as(usize, @intCast(size))];
@@ -77,12 +77,12 @@ pub const Detokenizer = struct {
     }
 
     /// de-tokenize another token. Doesn't display special tokens.
-    pub fn detokenize(self: *@This(), model: *llama.Model, token: llama.Token) ![]const u8 {
+    pub fn detokenize(self: *@This(), vocab: *const llama.Vocab, token: llama.Token) ![]const u8 {
         try self.data.ensureUnusedCapacity(16);
-        var size = model.tokenToPiece(token, self.data.unusedCapacitySlice());
+        var size = vocab.tokenToPiece(token, self.data.unusedCapacitySlice());
         if (size < 0) {
             try self.data.ensureUnusedCapacity(@intCast(-size));
-            size = model.tokenToPiece(token, self.data.unusedCapacitySlice());
+            size = vocab.tokenToPiece(token, self.data.unusedCapacitySlice());
             if (size < 0) @panic("unexpected tokenization error"); // TODO: switch to unreachable once sure it works
         }
         const len = self.data.items.len;

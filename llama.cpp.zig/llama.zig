@@ -30,7 +30,7 @@ pub const SeqId = c.llama_seq_id;
 pub const VocabType = c.enum_llama_vocab_type;
 pub const VocabPreType = c.llama_vocab_pre_type;
 pub const RopeType = c.enum_llama_rope_type;
-pub const TokenType = c.llama_token_type;
+pub const TokenType = c.llama_vocab_type;
 pub const TokenAttr = c.llama_token_attr;
 pub const FType = c.llama_ftype;
 pub const RopeScalingType = c.llama_rope_scaling_type;
@@ -136,7 +136,7 @@ pub const Sampler = extern opaque {
     }
 
     /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
-    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    /// @param candidates A vector of `llama_vocab_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
     /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
     /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
     /// @param m The number of tokens considered in the estimation of `s_hat`. This is an arbitrary value that is used to calculate `s_hat`, which in turn helps to calculate the value of `k`. In the paper, they use `m = 100`, but you can experiment with different values to see how it affects the performance of the algorithm.
@@ -146,7 +146,7 @@ pub const Sampler = extern opaque {
     }
 
     /// @details Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
-    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    /// @param candidates A vector of `llama_vocab_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
     /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
     /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
     /// @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal.
@@ -156,8 +156,8 @@ pub const Sampler = extern opaque {
         return @ptrCast(c.llama_sampler_init_mirostat_v2(seed, tau, eta));
     }
 
-    pub fn initGrammar(model: *const Model, grammar_str: [:0]const u8, grammar_root: [:0]const u8) SamplerPtr {
-        return @ptrCast(c.llama_sampler_init_grammar(model, grammar_str, grammar_root));
+    pub fn initGrammar(vocab: *const Vocab, grammar_str: [:0]const u8, grammar_root: [:0]const u8) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_grammar(vocab, grammar_str, grammar_root));
     }
 
     /// NOTE: Avoid using on the full vocabulary as searching for repeated tokens can become slow. For example, apply top-k or top-p sampling first.
@@ -166,8 +166,8 @@ pub const Sampler = extern opaque {
     }
 
     ///  @details DRY sampler, designed by p-e-w, as described in: https://github.com/oobabooga/text-generation-webui/pull/5677, porting Koboldcpp implementation authored by pi6am: https://github.com/LostRuins/koboldcpp/pull/982
-    pub fn initDry(model: *const Model, dry_multiplier: f32, dry_base: f32, dry_allowed_length: i32, dry_penalty_last_n: i32, seq_breakers: [*c]const [*c]const u8, num_breaker: usize) SamplerPtr {
-        return @ptrCast(c.llama_sampler_init_dry(model, dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n, seq_breakers, num_breaker));
+    pub fn initDry(vocab: *const Vocab, dry_multiplier: f32, dry_base: f32, dry_allowed_length: i32, dry_penalty_last_n: i32, seq_breakers: [*c]const [*c]const u8, num_breaker: usize) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_dry(vocab, dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n, seq_breakers, num_breaker));
     }
 
     pub fn initLogitBias(n_vocab: i32, n_logit_bias: i32, logit_bias: [*]const LogitBias) SamplerPtr {
@@ -195,8 +195,8 @@ pub const Sampler = extern opaque {
     // 3. discard non-EOG tokens with low prob
     // 4. if no tokens are left -> pick EOT
     //
-    pub fn initInfill(model: *const Model) SamplerPtr {
-        return @ptrCast(c.llama_sampler_init_infill(model));
+    pub fn initInfill(vocab: *const Vocab) SamplerPtr {
+        return @ptrCast(c.llama_sampler_init_infill(vocab));
     }
 
     // ========================================================================
@@ -285,35 +285,38 @@ pub const Model = extern opaque {
     pub const defaultParams = c.llama_model_default_params;
 
     pub inline fn initFromFile(path_to_file: CStr, params: Params) !*Model {
-        const ptr = c.llama_load_model_from_file(path_to_file, params);
+        const ptr = c.llama_model_load_from_file(path_to_file, params);
+        if (ptr == null) return error.FailedToLoadModel;
+        return @ptrCast(ptr);
+    }
+
+    pub inline fn initFromSplits(paths: []CStr, params: Params) !*Model {
+        const ptr = c.llama_model_load_from_splits(paths.ptr, paths.len, params);
         if (ptr == null) return error.FailedToLoadModel;
         return @ptrCast(ptr);
     }
 
     pub inline fn deinit(self: *@This()) void {
-        c.llama_free_model(@ptrCast(self));
+        c.llama_model_free(@ptrCast(self));
     }
 
-    pub inline fn vocabType(self: *const @This()) VocabType {
-        return (c.llama_vocab_type(self));
-    }
-    pub inline fn nVocab(self: *const @This()) i32 {
-        return (c.llama_n_vocab(self.cCPtr()));
-    }
     pub inline fn nCtxTrain(self: *const @This()) i32 {
-        return (c.llama_n_ctx_train(self.cCPtr()));
+        return (c.llama_model_n_ctx_train(self.cCPtr()));
     }
     pub inline fn nEmbd(self: *const @This()) i32 {
-        return (c.llama_n_embd(self.cCPtr()));
+        return (c.llama_model_n_embd(self.cCPtr()));
     }
     pub inline fn nLayer(self: *const @This()) i32 {
-        return (c.llama_n_layer(self.cCPtr()));
+        return (c.llama_model_n_layer(self.cCPtr()));
     }
     pub inline fn nHead(self: *const @This()) i32 {
-        return (c.llama_n_head(self.cCPtr()));
+        return (c.llama_model_get_vocab(self.cCPtr()));
     }
     pub inline fn ropeType(self: *const @This()) RopeType {
-        return c.llama_rope_type(self.cCPtr());
+        return c.llama_model_rope_type(self.cCPtr());
+    }
+    pub inline fn vocab(self: *const @This()) ?*const Vocab {
+        return @ptrCast(c.llama_model_get_vocab(self.cCPtr()));
     }
     // Get the model's RoPE frequency scaling factor
     pub inline fn ropeFreqScaleTrain(self: *const @This()) f32 {
@@ -400,60 +403,78 @@ pub const Model = extern opaque {
         if (c.llama_model_apply_lora_from_file(self.cCPtr(), path_lora, scale, path_base_model, @intCast(n_threads)) != 0) return error.LORA_ERROR;
     }
 
-    //
-    // Vocab
-    //
+    pub inline fn cCPtr(self: *const Model) *const c.llama_model {
+        return @ptrCast(self);
+    }
+};
+
+pub const Vocab = extern opaque {
+    pub inline fn vocabType(self: *const @This()) VocabType {
+        return (c.llama_vocab_type(self));
+    }
+
+    pub inline fn nVocab(self: *const @This()) i32 {
+        return (c.llama_vocab_n_tokens(@ptrCast(self)));
+    }
 
     pub inline fn tokenGetText(self: *const @This(), token: Token) CStr {
-        return c.llama_token_get_text(self.cCPtr(), token);
+        return c.llama_vocab_get_text(@ptrCast(self), token);
     }
     pub inline fn tokenGetTextSlice(self: *const @This(), token: Token) [:0]const u8 {
-        return std.mem.span(tokenGetText(self, token));
+        return std.mem.span(tokenGetText(@ptrCast(self), token));
     }
     pub inline fn tokenGetScore(self: *const @This(), token: Token) f32 {
-        return c.llama_token_get_score(self.cCPtr(), token);
+        return c.llama_vocab_get_score(@ptrCast(self), token);
     }
     pub inline fn tokenGetAttr(self: *const @This(), token: Token) TokenAttr {
-        return @enumFromInt(c.llama_token_get_attr(self.cCPtr(), token));
+        return @enumFromInt(c.llama_vocab_get_attr(@ptrCast(self), token));
     }
 
     // Special tokens
     pub inline fn tokenBos(self: *const @This()) Token {
-        return c.llama_token_bos(self.cCPtr());
+        return c.llama_vocab_bos(@ptrCast(self));
     }
     pub inline fn tokenEos(self: *const @This()) Token {
-        return c.llama_token_eos(self.cCPtr());
+        return c.llama_vocab_eos(@ptrCast(self));
     }
     pub inline fn tokenNl(self: *const @This()) Token {
-        return c.llama_token_nl(self.cCPtr());
+        return c.llama_vocab_nl(@ptrCast(self));
+    }
+
+    pub inline fn isEog(self: *const @This(), t: Token) bool {
+        return c.llama_vocab_is_eog(@ptrCast(self), t);
+    }
+
+    pub inline fn isControl(self: *const @This(), t: Token) bool {
+        return c.llama_vocab_is_control(@ptrCast(self), t);
     }
 
     /// gets state => Returns null for unknown, or true/false.
     pub inline fn addBosToken(self: *const @This()) ?bool {
-        const ret = c.llama_add_bos_token(self.cCPtr());
+        const ret = c.llama_add_bos_token(@ptrCast(self));
         if (ret < 0) return null;
         return ret > 0;
     }
 
     /// gets state => Returns null for unknown, or true/false.
     pub inline fn llama_add_eos_token(self: *const @This()) ?bool {
-        const ret = llama_add_eos_token(self.cCPtr());
+        const ret = llama_add_eos_token(@ptrCast(self));
         if (ret < 0) return null;
         return ret > 0;
     }
 
     // codellama infill tokens
     pub inline fn tokenPrefix(self: *const @This()) Token {
-        return c.llama_token_prefix(self.cCPtr());
+        return c.llama_vocab_prefix(@ptrCast(self));
     } // Beginning of infill prefix
     pub inline fn tokenMiddle(self: *const @This()) Token {
-        return c.llama_token_middle(self.cCPtr());
+        return c.llama_vocab_middle(@ptrCast(self));
     } // Beginning of infill middle
     pub inline fn tokenSuffix(self: *const @This()) Token {
-        return c.llama_token_suffix(self.cCPtr());
+        return c.llama_vocab_suffix(@ptrCast(self));
     } // Beginning of infill suffix
     pub inline fn tokenEot(self: *const @This()) Token {
-        return c.llama_token_eot(self.cCPtr());
+        return c.llama_vocab_eot(@ptrCast(self));
     } // End of infill middle
 
     //
@@ -466,8 +487,8 @@ pub const Model = extern opaque {
     /// @return Returns a negative number on failure - the number of tokens that would have been returned
     /// @param special Allow tokenizing special and/or control tokens which otherwise are not exposed and treated as plaintext.
     ///                Does not insert a leading space.
-    pub inline fn tokenize(model: *const @This(), text: []const u8, out_tokens: []Token, add_bos: bool, special: bool) i32 {
-        return c.llama_tokenize(model.cCPtr(), text.ptr, @intCast(text.len), out_tokens.ptr, @intCast(out_tokens.len), add_bos, special);
+    pub inline fn tokenize(self: *const @This(), text: []const u8, out_tokens: []Token, add_bos: bool, special: bool) i32 {
+        return c.llama_tokenize(@ptrCast(self), text.ptr, @intCast(text.len), out_tokens.ptr, @intCast(out_tokens.len), add_bos, special);
     }
 
     // Token Id -> Piece.
@@ -476,15 +497,15 @@ pub const Model = extern opaque {
     // User code is responsible to remove the leading whitespace of the first non-BOS token when decoding multiple tokens.
     pub inline fn tokenToPiece(self: *const @This(), token: Token, out_text: []u8) i32 {
         const special = true;
-        return c.llama_token_to_piece(self.cCPtr(), token, out_text.ptr, @intCast(out_text.len), 0, special);
+        return c.llama_token_to_piece(@ptrCast(self), token, out_text.ptr, @intCast(out_text.len), 0, special);
     }
 
-    pub inline fn cCPtr(self: *const Model) *const c.llama_model {
-        return @ptrCast(self);
+    pub inline fn chatTemplate(self: *const @This(), name: ?[:0]u8) i32 {
+        return c.llama_model_chat_template(@ptrCast(self), name.ptr);
     }
 };
 
-pub const LoraAdapterPtr = *align(@alignOf(c.llama_lora_adapter)) LoraAdapter;
+pub const LoraAdapterPtr = *align(@alignOf(c.llama_adapter_lora)) LoraAdapter;
 pub const LoraAdapter = opaque {
     // Load a LoRA adapter from file
     // The loaded adapter will be associated to the given model, and will be free when the model is deleted
@@ -685,7 +706,7 @@ pub const Context = opaque {
     }
 
     /// @details Apply classifier-free guidance to the logits as described in academic paper "Stay on topic with Classifier-Free Guidance" https://arxiv.org/abs/2306.17806
-    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, the logits must be directly extracted from the original generation context without being sorted.
+    /// @param candidates A vector of `llama_vocab_data` containing the candidate tokens, the logits must be directly extracted from the original generation context without being sorted.
     /// @params guidance_ctx A separate context from the same model. Other than a negative prompt at the beginning, it should have all generated and user input tokens copied from the main context.
     /// @params scale Guidance strength. 1.0f means no guidance. Higher values mean stronger guidance.
     // pub inline fn sampleClassifierFreeGuidance(self: *@This(), candidates: *TokenDataArray, guidance_ctx: *Context, scale: f32) void {
@@ -727,7 +748,7 @@ pub const Context = opaque {
     }
 
     /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
-    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    /// @param candidates A vector of `llama_vocab_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
     /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
     /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
     /// @param m The number of tokens considered in the estimation of `s_hat`. This is an arbitrary value that is used to calculate `s_hat`, which in turn helps to calculate the value of `k`. In the paper, they use `m = 100`, but you can experiment with different values to see how it affects the performance of the algorithm.
@@ -737,7 +758,7 @@ pub const Context = opaque {
     }
 
     /// @details Mirostat 2.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
-    /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+    /// @param candidates A vector of `llama_vocab_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
     /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
     /// @param eta The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
     /// @param mu Maximum cross-entropy. This value is initialized to be twice the target cross-entropy (`2 * tau`) and is updated in the algorithm based on the error between the target and observed surprisal.
