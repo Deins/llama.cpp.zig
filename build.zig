@@ -16,6 +16,8 @@ pub const Options = struct {
     target: Target,
     optimize: Mode,
     clblast: bool = false,
+    source_path: []const u8 = "",
+    backends: llama.Backends = .{},
 };
 
 /// Build context
@@ -37,6 +39,7 @@ pub const Context = struct {
             .target = options.target,
             .optimize = options.optimize,
             .shared = false,
+            .backends = options.backends,
         });
 
         const llama_h_module = llama_cpp.moduleLlama();
@@ -52,7 +55,7 @@ pub const Context = struct {
             },
         };
         const mod = b.createModule(.{
-            .root_source_file = b.path("llama.cpp.zig/llama.zig"),
+            .root_source_file = b.path(b.pathJoin(&.{ options.source_path, "llama.cpp.zig/llama.zig" })),
             .imports = imports,
         });
 
