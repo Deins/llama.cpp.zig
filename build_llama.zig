@@ -8,9 +8,9 @@ const Module = std.Build.Module;
 
 pub const Backends = struct {
     cpu: bool = true,
+    metal: bool = false,
     // untested possibly unsupported at the moment:
     cuda: bool = false,
-    metal: bool = false,
     sycl: bool = false,
     vulkan: bool = false,
     opencl: bool = false,
@@ -39,6 +39,8 @@ pub const Options = struct {
     backends: Backends = .{},
     shared: bool, // static or shared lib
     build_number: usize = 0, // number that will be writen in build info
+    metal_ndebug: bool = false,
+    metal_use_bf16: bool = false,
 };
 
 // Build context
@@ -186,9 +188,64 @@ pub const Context = struct {
             }) catch unreachable;
         }
 
-        for (sources.items) |src| compile.addCSourceFile(.{ .file = src, .flags = ctx.flags() });
-        //if (ctx.cuda) compile.ctx.path("ggml-cuda.cu");
+        if (ctx.options.backends.metal) {
+            compile.addIncludePath(ctx.path(&.{ "ggml", "src", "ggml-metal" }));
+            compile.linkLibCpp();
+            compile.defineCMacro("GGML_METAL", null);
+            if (ctx.options.metal_ndebug) {
+                compile.defineCMacro("GGML_METAL_NDEBUG", null);
+            }
+            if (ctx.options.metal_use_bf16) {
+                compile.defineCMacro("GGML_METAL_USE_BF16", null);
+            }
+            // Create a separate Metal library
+            const metal_lib = ctx.b.addStaticLibrary(.{
+                .name = "ggml-metal",
+                .target = ctx.options.target,
+                .optimize = ctx.options.optimize,
+            });
+            metal_lib.addIncludePath(ctx.path(&.{ "ggml", "include" }));
+            metal_lib.addIncludePath(ctx.path(&.{ "ggml", "src" }));
+            metal_lib.addIncludePath(ctx.path(&.{ "ggml", "src", "ggml-metal" }));
+            metal_lib.linkFramework("Foundation");
+            metal_lib.linkFramework("AppKit");
+            metal_lib.linkFramework("Metal");
+            metal_lib.linkFramework("MetalKit");
+            metal_lib.addCSourceFile(.{ .file = ctx.path(&.{ "ggml", "src", "ggml-metal", "ggml-metal.m" }), .flags = ctx.flags() });
+            const metal_files = [_][]const u8{
+                "ggml-metal.metal",
+                "ggml-metal-impl.h",
+            };
+            // Compile the metal shader [requires xcode installed]
+            const metal_compile = ctx.b.addSystemCommand(&.{
+                "xcrun", "-sdk", "macosx", "metal", "-fno-fast-math", "-g", "-c", ctx.b.pathJoin(&.{ ctx.b.install_path, "metal", "ggml-metal.metal" }), "-o", ctx.b.pathJoin(&.{ ctx.b.install_path, "metal", "ggml-metal.air" }),
+            });
+            const common_src = ctx.path(&.{ "ggml", "src", "ggml-common.h" });
+            const common_dst = "ggml-common.h";
+            const common_install_step = ctx.b.addInstallFile(common_src, common_dst);
+            metal_compile.step.dependOn(&common_install_step.step);
+            for (metal_files) |file| {
+                const src = ctx.path(&.{ "ggml", "src", "ggml-metal", file });
+                const dst = ctx.b.pathJoin(&.{ "metal", file });
+                const install_step = ctx.b.addInstallFile(src, dst);
+                metal_compile.step.dependOn(&install_step.step);
+            }
+            const metallib_compile = ctx.b.addSystemCommand(&.{
+                "xcrun", "-sdk", "macosx", "metallib", ctx.b.pathJoin(&.{ ctx.b.install_path, "metal", "ggml-metal.air" }), "-o", ctx.b.pathJoin(&.{ ctx.b.install_path, "metal", "default.metallib" }),
+            });
+            metallib_compile.step.dependOn(&metal_compile.step);
+            // Install the metal shader source file to bin directory
+            const metal_shader_install = ctx.b.addInstallBinFile(ctx.path(&.{ "ggml", "src", "ggml-metal", "ggml-metal.metal" }), "ggml-metal.metal");
+            const default_lib_install = ctx.b.addInstallBinFile(.{ .cwd_relative = ctx.b.pathJoin(&.{ ctx.b.install_path, "metal", "default.metallib" }) }, "default.metallib");
+            metal_shader_install.step.dependOn(&metallib_compile.step);
+            default_lib_install.step.dependOn(&metal_shader_install.step);
+            // Link the metal library with the main compilation
+            compile.linkLibrary(metal_lib);
+            compile.step.dependOn(&metal_lib.step);
+            compile.step.dependOn(&default_lib_install.step);
+        }
 
+        for (sources.items) |src| compile.addCSourceFile(.{ .file = src, .flags = ctx.flags() });
     }
 
     pub fn addLLama(ctx: *Context, compile: *CompileStep) void {
