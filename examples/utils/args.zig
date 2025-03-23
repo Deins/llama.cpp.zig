@@ -15,13 +15,13 @@ pub fn parseArgs(comptime ArgsStruct: type, args: [][:0]u8) !?ArgsStruct {
         }
         var args_used: usize = 0;
         // use struct field names as arguments automagically using meta-programming
-        inline for (@typeInfo(ArgsStruct).Struct.fields) |field| {
+        inline for (@typeInfo(ArgsStruct).@"struct".fields) |field| {
             if (std.ascii.eqlIgnoreCase(field.name, curr[2..])) {
-                const field_type = if (@typeInfo(field.type) == .Optional) @typeInfo(field.type).Optional.child else field.type;
+                const field_type = if (@typeInfo(field.type) == .optional) @typeInfo(field.type).optional.child else field.type;
                 switch (@typeInfo(field_type)) {
-                    .Pointer => @field(self, field.name) = try arg(next),
-                    .Int => @field(self, field.name) = try std.fmt.parseInt(field_type, try arg(next), 10),
-                    .Float => @field(self, field.name) = try std.fmt.parseFloat(field_type, try arg(next)),
+                    .pointer => @field(self, field.name) = try arg(next),
+                    .int => @field(self, field.name) = try std.fmt.parseInt(field_type, try arg(next), 10),
+                    .float => @field(self, field.name) = try std.fmt.parseFloat(field_type, try arg(next)),
                     else => @panic("Unsuported argument type!"),
                 }
                 args_used += 2;
@@ -39,7 +39,7 @@ pub fn parseArgs(comptime ArgsStruct: type, args: [][:0]u8) !?ArgsStruct {
 pub fn printHelp(comptime ArgsStruct: type) void {
     const help = comptime blk: {
         var help: [:0]const u8 = "Help: Arguments:\n" ++ "\tArgument\t\tType\t\tDefault value\n";
-        for (@typeInfo(ArgsStruct).Struct.fields) |field| {
+        for (@typeInfo(ArgsStruct).@"struct".fields) |field| {
             help = help ++ "\t--" ++ field.name ++ "\t\t" ++ @typeName(field.type) ++ "\n"; // todo: default value
         }
         break :blk help;

@@ -1,5 +1,5 @@
 .{
-    .name = "llama.cpp.zig",
+    .name = .llama_cpp_zig,
     .version = "0.0.7",
     .paths = .{
         "",
@@ -10,4 +10,5 @@
         "llama.cpp/common",
     },
     .dependencies = .{},
+    .fingerprint = 0x2177db0a3e9a0c2a,
 }
