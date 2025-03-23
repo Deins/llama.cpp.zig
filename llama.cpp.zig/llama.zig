@@ -72,7 +72,7 @@ pub const SamplerContext = c.llama_sampler_context_t;
 pub const SamplerChainParams = c.llama_sampler_chain_params;
 
 pub const SamplerPtr = *align(@alignOf(c.llama_sampler)) Sampler;
-pub const Sampler = extern opaque {
+pub const Sampler = opaque {
     // ========================================================================
     // Sampler chain
     // ========================================================================
@@ -280,7 +280,7 @@ pub const Backend = opaque {
     }
 };
 
-pub const Model = extern opaque {
+pub const Model = opaque {
     pub const Params = c.llama_model_params;
     pub const defaultParams = c.llama_model_default_params;
 
@@ -408,7 +408,7 @@ pub const Model = extern opaque {
     }
 };
 
-pub const Vocab = extern opaque {
+pub const Vocab = opaque {
     pub inline fn vocabType(self: *const @This()) VocabType {
         return (c.llama_vocab_type(self));
     }

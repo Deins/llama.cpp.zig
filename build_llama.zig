@@ -20,16 +20,16 @@ pub const Backends = struct {
     kompute: bool = false,
 
     pub fn addDefines(self: @This(), comp: *CompileStep) void {
-        if (self.cuda) comp.defineCMacro("GGML_USE_CUDA", null);
-        if (self.metal) comp.defineCMacro("GGML_USE_METAL", null);
-        if (self.sycl) comp.defineCMacro("GGML_USE_SYCL", null);
-        if (self.vulkan) comp.defineCMacro("GGML_USE_VULKAN", null);
-        if (self.opencl) comp.defineCMacro("GGML_USE_OPENCL", null);
-        if (self.cann) comp.defineCMacro("GGML_USE_CANN", null);
-        if (self.blas) comp.defineCMacro("GGML_USE_BLAS", null);
-        if (self.rpc) comp.defineCMacro("GGML_USE_RPC", null);
-        if (self.kompute) comp.defineCMacro("GGML_USE_KOMPUTE", null);
-        if (self.cpu) comp.defineCMacro("GGML_USE_CPU", null);
+        if (self.cuda) comp.root_module.addCMacro("GGML_USE_CUDA", "");
+        if (self.metal) comp.root_module.addCMacro("GGML_USE_METAL", "");
+        if (self.sycl) comp.root_module.addCMacro("GGML_USE_SYCL", "");
+        if (self.vulkan) comp.root_module.addCMacro("GGML_USE_VULKAN", "");
+        if (self.opencl) comp.root_module.addCMacro("GGML_USE_OPENCL", "");
+        if (self.cann) comp.root_module.addCMacro("GGML_USE_CANN", "");
+        if (self.blas) comp.root_module.addCMacro("GGML_USE_BLAS", "");
+        if (self.rpc) comp.root_module.addCMacro("GGML_USE_RPC", "");
+        if (self.kompute) comp.root_module.addCMacro("GGML_USE_KOMPUTE", "");
+        if (self.cpu) comp.root_module.addCMacro("GGML_USE_CPU", "");
     }
 };
 
@@ -95,21 +95,21 @@ pub const Context = struct {
     /// build single library containing everything
     pub fn library(ctx: *Context) *CompileStep {
         if (ctx.lib) |l| return l;
-        const lib_opt = .{ .name = "llama.cpp", .target = ctx.options.target, .optimize = ctx.options.optimize };
+        const lib_opt: Builder.SharedLibraryOptions = .{ .name = "llama.cpp", .target = ctx.options.target, .optimize = ctx.options.optimize };
         const lib = if (ctx.options.shared) blk: {
             const lib = ctx.b.addSharedLibrary(lib_opt);
-            lib.defineCMacro("LLAMA_SHARED", null);
-            lib.defineCMacro("LLAMA_BUILD", null);
+            lib.root_module.addCMacro("LLAMA_SHARED", "");
+            lib.root_module.addCMacro("LLAMA_BUILD", "");
             if (ctx.options.target.result.os.tag == .windows) {
                 std.log.warn("For shared linking to work, requires header llama.h modification:\n\'#    if defined(_WIN32) && (!defined(__MINGW32__) || defined(ZIG))'", .{});
-                lib.defineCMacro("ZIG", null);
+                lib.root_module.addCMacro("ZIG", "");
             }
             break :blk lib;
-        } else ctx.b.addStaticLibrary(lib_opt);
+        } else ctx.b.addStaticLibrary(Builder.StaticLibraryOptions{ .name = "llama.cpp", .target = ctx.options.target, .optimize = ctx.options.optimize });
         ctx.options.backends.addDefines(lib);
         ctx.addAll(lib);
         if (ctx.options.target.result.abi != .msvc)
-            lib.defineCMacro("_GNU_SOURCE", null);
+            lib.root_module.addCMacro("_GNU_SOURCE", "");
         ctx.lib = lib;
         return lib;
     }
@@ -129,7 +129,7 @@ pub const Context = struct {
             .optimize = ctx.options.optimize,
         });
         if (ctx.options.shared) tcDefineCMacro(tc, "LLAMA_SHARED", null);
-        tc.addIncludeDir(ctx.path(&.{ "ggml", "include" }).getPath(ctx.b));
+        tc.addSystemIncludePath(ctx.path(&.{ "ggml", "include" }));
         tcDefineCMacro(tc, "NDEBUG", null); // otherwise zig is unhappy about c ASSERT macro
         return tc.addModule("llama.h");
     }
@@ -158,7 +158,7 @@ pub const Context = struct {
         compile.addIncludePath(ctx.path(&.{ "ggml", "src" }));
 
         if (ctx.options.target.result.os.tag == .windows) {
-            compile.defineCMacro("GGML_ATTRIBUTE_FORMAT(...)", "");
+            compile.root_module.addCMacro("GGML_ATTRIBUTE_FORMAT(...)", "");
         }
 
         var sources = std.ArrayList(LazyPath).init(ctx.b.allocator);
@@ -191,12 +191,12 @@ pub const Context = struct {
         if (ctx.options.backends.metal) {
             compile.addIncludePath(ctx.path(&.{ "ggml", "src", "ggml-metal" }));
             compile.linkLibCpp();
-            compile.defineCMacro("GGML_METAL", null);
+            compile.root_module.addCMacro("GGML_METAL", "");
             if (ctx.options.metal_ndebug) {
-                compile.defineCMacro("GGML_METAL_NDEBUG", null);
+                compile.root_module.addCMacro("GGML_METAL_NDEBUG", "");
             }
             if (ctx.options.metal_use_bf16) {
-                compile.defineCMacro("GGML_METAL_USE_BF16", null);
+                compile.root_module.addCMacro("GGML_METAL_USE_BF16", "");
             }
             // Create a separate Metal library
             const metal_lib = ctx.b.addStaticLibrary(.{
@@ -338,7 +338,7 @@ pub const Context = struct {
     fn common(ctx: Context, lib: *CompileStep) void {
         lib.linkLibCpp();
         lib.addIncludePath(ctx.path(&.{"common"}));
-        if (ctx.options.optimize != .Debug) lib.defineCMacro("NDEBUG", null);
+        if (ctx.options.optimize != .Debug) lib.root_module.addCMacro("NDEBUG", "");
     }
 
     pub fn path(self: Context, subpath: []const []const u8) LazyPath {
@@ -359,7 +359,7 @@ fn thisPath() []const u8 {
     return std.fs.path.dirname(@src().file) orelse ".";
 }
 
-// TODO: idk, defineCMacro returns: TranslateC.zig:110:28: error: root struct of file 'Build' has no member named 'constructranslate_cMacro'
+// TODO: idk, root_module.addCMacro returns: TranslateC.zig:110:28: error: root struct of file 'Build' has no member named 'constructranslate_cMacro'
 // use raw macro for now
 fn tcDefineCMacro(tc: *std.Build.Step.TranslateC, comptime name: []const u8, comptime value: ?[]const u8) void {
     tc.defineCMacroRaw(name ++ "=" ++ (value orelse "1"));
